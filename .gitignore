@@ -1,0 +1,88 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# Installer logs
+pip-log.txt
+
+# Virtual environments
+venv/
+env/
+.venv/
+venv*/
+
+# Pytest
+.pytest_cache/
+
+# Tests (evidence output only — keep the pytest suite itself tracked)
+backend/tests/evidence/
+.pytest_cache/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets and env
+.env
+.env.*
+secrets/
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.cer
+*.pfx
+*.der
+*.jks
+certificates/
+certs/
+ssl/
+
+# Implementation plans (user request)
+backend/implementation-plan1.md
+backend/implementation-plan2.md
+
+# Logs
+*.log
+logs/
+
+# Database
+*.sqlite3
+*.db
+*.sqlite
+
+# Frontend / Node
+node_modules/
+npm-debug.log
+yarn-error.log
+build/
+dist/
+
+# Type checking / caches
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+
+# Local settings
+local_settings.py
