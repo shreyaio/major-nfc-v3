@@ -1,0 +1,6 @@
+adafruit-blinka
+adafruit-circuitpython-pn532
+requests
+python-dotenv
+cryptography
+qrcode[pil]

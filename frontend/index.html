@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Medicine Authenticity Verification</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <h1>Medicine Authenticity Check</h1>
+      <p>Verify an NFC-tagged medicine package</p>
+    </header>
+
+    <div class="card">
+      <form class="entry-form" id="entry-form">
+        <label for="tag-id">Tag ID</label>
+        <input id="tag-id" name="tag-id" type="text" placeholder="Paste or scan the tag ID"
+               autocomplete="off" autocapitalize="off" spellcheck="false" required>
+        <button type="submit">Verify</button>
+      </form>
+    </div>
+
+    <p class="footer-note">
+      Tapping a genuine tag with your phone opens the verification page automatically.
+      This manual entry field is for testing without a physical tag.
+    </p>
+  </div>
+
+  <script>
+    document.getElementById("entry-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var id = document.getElementById("tag-id").value.trim();
+      if (id) {
+        window.location.href = "verify.html?t=" + encodeURIComponent(id);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "Medicine Authenticity Check",
+  "short_name": "MedCheck",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": []
+}

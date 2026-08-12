@@ -6,14 +6,16 @@ def get_connection():
         conn = psycopg2.connect(DATABASE_URL)
         return conn
     except Exception as e:
-        print("❌ DB Connection Error:", e)
+        # Plain ASCII only: emoji here crashes with UnicodeEncodeError on Windows'
+        # default cp1252 console, which then masks the real connection error.
+        print("[DB] Connection Error:", e)
         return None
 
 
 def test_connection():
     try:
         conn = psycopg2.connect(DATABASE_URL)
-        print("✅ Connected to PostgreSQL!")
+        print("[DB] Connected to PostgreSQL!")
 
         cur = conn.cursor()
         cur.execute("SELECT version();")
@@ -25,7 +27,7 @@ def test_connection():
         conn.close()
 
     except Exception as e:
-        print("❌ Connection Failed:", e)
+        print("[DB] Connection Failed:", e)
 
 
 # Run test

@@ -1,30 +1,29 @@
 """
-Database Initialization Script
-Run this to create or update the products table to the 17-column schema.
+Database Bootstrap Script
+Creates the products table if it doesn't already exist. Safe to rerun against a
+populated database — it will NOT drop or touch existing data. For schema changes
+on top of an existing table, use migrate.py instead.
 """
 
 from db import get_connection
 import sys
 
 def init_database():
-    """Create the products table with full security schema"""
+    """Create the products table with full security schema (idempotent)"""
     print("\n" + "="*60)
-    print("DATABASE INITIALIZATION (Plan 2 Schema)")
+    print("DATABASE BOOTSTRAP (idempotent — creates table if missing)")
     print("="*60)
 
     try:
         conn = get_connection()
+        if not conn:
+            print("\n[ERROR] Could not connect to the database.")
+            return False
         cur = conn.cursor()
 
-        # We will DROP and RECREATE for a clean state in development, 
-        # but you can use ALTER TABLE if you have data you want to keep.
-        # Since we are debugging, a clean table is safer.
-        print("\nDropping old table (if exists)...")
-        cur.execute("DROP TABLE IF EXISTS products;")
-
-        # Create products table with 17 columns
+        # Create products table with 17 columns (no-op if it already exists)
         create_table_sql = """
-        CREATE TABLE products (
+        CREATE TABLE IF NOT EXISTS products (
             id SERIAL PRIMARY KEY,
             product_id TEXT NOT NULL,
             product_id_iv TEXT NOT NULL,
@@ -47,24 +46,24 @@ def init_database():
         print("\nCreating products table with full schema...")
         cur.execute(create_table_sql)
 
-        # Create indexes
+        # Create indexes (no-op if they already exist)
         print("Creating indexes...")
-        cur.execute("CREATE INDEX idx_tag_uid_hash ON products(tag_uid_hash);")
-        cur.execute("CREATE INDEX idx_tag_uid ON products(tag_uid);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tag_uid_hash ON products(tag_uid_hash);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tag_uid ON products(tag_uid);")
 
         conn.commit()
-        print("✅ Products table created successfully with 17 columns!")
+        print("[OK] Products table created successfully!")
 
         cur.close()
         conn.close()
 
         print("\n" + "="*60)
-        print("✅ Database initialization complete!")
+        print("[OK] Database bootstrap complete!")
         print("="*60)
         return True
 
     except Exception as e:
-        print(f"\n❌ ERROR: {type(e).__name__}")
+        print(f"\n[ERROR] {type(e).__name__}")
         print(f"Message: {str(e)}")
         return False
 

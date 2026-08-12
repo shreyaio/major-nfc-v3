@@ -29,6 +29,9 @@ venv*/
 backend/tests/evidence/
 .pytest_cache/
 
+# Generated QR fallback images (runtime output, not source)
+pi/qr_codes/
+
 # IDEs
 .vscode/
 .idea/
@@ -86,3 +89,6 @@ htmlcov/
 
 # Local settings
 local_settings.py
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json
