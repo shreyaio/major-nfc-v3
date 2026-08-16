@@ -1,0 +1,4 @@
+*.pdf -text binary
+*.exe -text binary
+*.png -text binary
+*.jpg -text binary
