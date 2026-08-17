@@ -37,6 +37,15 @@ STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_audit_tag_uid_hash ON audit_log(tag_uid_hash);",
     "CREATE INDEX IF NOT EXISTS idx_audit_event_type    ON audit_log(event_type);",
     "CREATE INDEX IF NOT EXISTS idx_audit_created_at    ON audit_log(created_at);",
+
+    # Row Level Security: the backend connects with Supabase's "postgres" role,
+    # which bypasses RLS, so this doesn't affect the app. What it does do is stop
+    # Supabase's auto-generated REST API (PostgREST) from reading or writing these
+    # tables if it's ever queried with the project's anon/public key -- with RLS
+    # enabled and no policies granted to anon/authenticated, that path is a dead
+    # end. The only route to this data is through the Flask backend.
+    "ALTER TABLE products ENABLE ROW LEVEL SECURITY;",
+    "ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;",
 ]
 
 
