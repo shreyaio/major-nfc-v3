@@ -1,0 +1,22 @@
+# Render Blueprint — lets Render auto-configure the service correctly.
+# In the Render dashboard: New + -> Blueprint -> select this repo -> it reads this file.
+# After creation, set the env vars below manually in the dashboard (they're marked
+# sync: false here on purpose, so their real values never live in the git repo).
+services:
+  - type: web
+    name: nfc-med-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SHARED_SECRET
+        sync: false
+      - key: AES_MASTER_KEY
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: FRONTEND_VERIFY_BASE_URL
+        sync: false

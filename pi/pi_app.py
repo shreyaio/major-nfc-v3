@@ -206,15 +206,21 @@ def aes_gcm_encrypt(plaintext: str, key: bytes) -> tuple:
 def build_ndef_uri_message(url: str) -> bytes:
     """
     Wraps `url` in a Type-2-Tag NDEF URI record, TLV-wrapped and terminated,
-    ready to be written starting at page 8. Uses the "https://" URI
-    abbreviation code so only the part after the scheme is stored.
+    ready to be written starting at page 8. Uses the NFC Forum URI abbreviation
+    code matching the URL's actual scheme so only the rest of the URL is stored.
     """
-    prefix = "https://"
-    if not url.startswith(prefix):
-        raise ValueError("FRONTEND_VERIFY_BASE_URL must start with https:// for NDEF writing")
+    # 0x03 = "http://" abbreviation, 0x04 = "https://" abbreviation (NFC Forum URI codes).
+    # Must match whichever scheme FRONTEND_VERIFY_BASE_URL actually uses, or the tag will
+    # decode to the wrong protocol when a phone taps it.
+    if url.startswith("https://"):
+        abbrev_code, prefix = 0x04, "https://"
+    elif url.startswith("http://"):
+        abbrev_code, prefix = 0x03, "http://"
+    else:
+        raise ValueError("FRONTEND_VERIFY_BASE_URL must start with http:// or https:// for NDEF writing")
     rest = url[len(prefix):].encode("ascii")
 
-    payload = bytes([0x04]) + rest           # 0x04 = "https://" abbreviation
+    payload = bytes([abbrev_code]) + rest
     record = bytes([0xD1, 0x01, len(payload), ord('U')]) + payload  # short record, TNF=well-known, type='U'
 
     tlv = bytes([0x03, len(record)]) + record + bytes([0xFE])  # NDEF Message TLV + Terminator TLV

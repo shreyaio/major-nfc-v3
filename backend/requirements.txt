@@ -19,3 +19,4 @@ Werkzeug==3.1.6
 pyopenssl
 cryptography
 pytest
+gunicorn
