@@ -28,7 +28,7 @@ def test_bruteforce_post_products_all_rejected_and_throttled():
         body, _, _ = build_valid_product_body()
         r = requests.post(
             BASE_URL + "/api/products", json=body,
-            headers={"X-Timestamp": str(int(time.time())), "X-Signature": secrets.token_hex(32)},
+            headers={"X-Timestamp": str(int(time.time())), "X-Signature": secrets.token_hex(64)},
             timeout=5,
         )
         statuses.append(r.status_code)

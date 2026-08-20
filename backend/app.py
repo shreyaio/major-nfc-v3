@@ -5,7 +5,7 @@ from flask_limiter.util import get_remote_address
 import psycopg2.errors
 
 from db import get_connection
-from config import SHARED_SECRET, AES_MASTER_KEY
+from config import SHARED_SECRET, AES_MASTER_KEY, PI_PUBLIC_KEYS
 from admin_auth import require_admin_key
 from audit import log_audit
 from utils import (
@@ -15,9 +15,9 @@ from utils import (
 )
 from crypto_paper import derive_session_keys, decrypt_field as decrypt_field_paper
 from crypto_modern import derive_tag_key, aes_gcm_decrypt, InvalidTag
+from crypto_signing import verify_ed25519_signature
 
 import hmac as hmac_module
-import hashlib
 import time
 import json
 import traceback
@@ -60,11 +60,10 @@ def verify_request_signature(req) -> bool:
     # Use empty dict for GET requests (no body); parse JSON body for POST
     body    = req.get_json(force=True, silent=True) or {}
     payload = ts + json.dumps(body, sort_keys=True, separators=(',', ':'))
-    expected = hmac_module.new(
-        SHARED_SECRET, payload.encode('utf-8'), hashlib.sha256
-    ).hexdigest()
-    # Constant-time comparison prevents timing attacks
-    return hmac_module.compare_digest(expected, sig)
+    # Ed25519: asymmetric, so verifying this never requires the device's private
+    # key -- leaking PI_PUBLIC_KEYS (or this whole server's config) does not let
+    # anyone forge a valid signature, unlike the old shared-HMAC-secret scheme.
+    return verify_ed25519_signature(payload.encode('utf-8'), sig, PI_PUBLIC_KEYS)
 
 
 def decrypt_field_for_row(iv_hex, data_hex, crypto_version, tag_uid_hash, key_chars=None):

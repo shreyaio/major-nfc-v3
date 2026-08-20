@@ -33,11 +33,20 @@ from dotenv import load_dotenv
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 load_dotenv()
 
 SHARED_SECRET  = bytes.fromhex(os.getenv("SHARED_SECRET", ""))
 AES_MASTER_KEY = bytes.fromhex(os.getenv("AES_MASTER_KEY", ""))
+
+# This device's own Ed25519 identity. The private key never leaves this Pi --
+# it's never sent in a request and never stored server-side. The backend only
+# ever needs the matching public key (see backend/config.py PI_PUBLIC_KEYS) to
+# verify signatures, so leaking the server's config can't be used to forge a
+# write under this device's identity.
+PI_PRIVATE_KEY = bytes.fromhex(os.getenv("PI_PRIVATE_KEY", ""))
+_pi_signing_key = Ed25519PrivateKey.from_private_bytes(PI_PRIVATE_KEY)
 
 # ================= CONFIG =================
 BACKEND_URL             = os.getenv("BACKEND_URL", "http://localhost:5000")
@@ -268,11 +277,12 @@ def uid_clean(uid):
     return "".join("{:02X}".format(x) for x in uid)
 
 
-def sign_body(body: dict, secret: bytes):
-    """Returns (timestamp_str, hex_signature)."""
+def sign_body(body: dict) -> tuple:
+    """Returns (timestamp_str, hex_signature). Signs with this device's Ed25519
+    private key -- the backend verifies with the matching public key only."""
     ts      = str(int(time.time()))
     payload = ts + _json.dumps(body, sort_keys=True, separators=(',', ':'))
-    sig     = _hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()
+    sig     = _pi_signing_key.sign(payload.encode('utf-8')).hex()
     return ts, sig
 
 
@@ -300,7 +310,7 @@ def send_backend(product_id, batch_id, mfg, tag_uid, tag_uid_hash):
         "shelf_life":     SHELF_LIFE_DAYS,
         "tag_uid":        {"iv": uid_iv, "data": uid_ct},
     }
-    ts, sig = sign_body(body, SHARED_SECRET)
+    ts, sig = sign_body(body)
     headers = {
         "Content-Type": "application/json",
         "X-Timestamp":  ts,
