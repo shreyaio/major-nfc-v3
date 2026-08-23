@@ -11,7 +11,6 @@ forge a fresh, currently-valid signature over the same nonce).
 from conftest import (
     build_valid_product_body, post_signed_product, sign_request, log_evidence,
 )
-from config import SHARED_SECRET
 
 
 def test_replay_verbatim_request_is_rejected_by_nonce_uniqueness():
@@ -50,17 +49,19 @@ def test_replay_stale_timestamp_is_rejected():
 
 def test_replay_with_freshly_forged_signature_same_nonce_still_rejected():
     """
-    Even an attacker who somehow possesses SHARED_SECRET and can produce a brand
-    new, currently-valid signature over the identical body/nonce is still stopped
-    -- because nonce uniqueness is enforced at the database level, independent of
-    signature validity or timestamp freshness.
+    Even a legitimately-signed, brand-new, currently-valid request over the
+    identical body/nonce (simulated here via the test fixture's own trusted
+    Ed25519 key) is still stopped -- because nonce uniqueness is enforced at
+    the database level, independent of signature validity or timestamp
+    freshness. This holds even for a fully trusted signer, so it necessarily
+    also holds against anyone who isn't.
     """
     body, _, _ = build_valid_product_body()
     r1 = post_signed_product(body)
     assert r1.status_code == 200
 
-    # Forge a brand-new, currently-valid signature over the same body/nonce.
-    ts2, sig2 = sign_request(body, SHARED_SECRET)
+    # Re-sign the same body/nonce with a brand-new, currently-valid signature.
+    ts2, sig2 = sign_request(body)
     import requests
     from conftest import BASE_URL
     r2 = requests.post(BASE_URL + "/api/products", json=body,

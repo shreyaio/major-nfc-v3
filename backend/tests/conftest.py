@@ -3,8 +3,12 @@ Shared fixtures/helpers for the functional + attack-simulation suite.
 
 These tests exercise a REAL, RUNNING server (not Flask's test client) because
 several of them specifically need to observe live behavior: rate-limit counters,
-actual DB-level nonce uniqueness under concurrent-ish requests, and timing. Start
-the server first:
+actual DB-level nonce uniqueness under concurrent-ish requests, and timing.
+
+Requires the test suite's own Ed25519 public key (see _TEST_DEVICE_PRIVATE_KEY_HEX
+below) to be present in the server's PI_PUBLIC_KEYS env var, comma-joined with
+the real Pi's public key -- otherwise every signed write in this suite gets a
+403. Start the server first:
 
     cd backend
     venv\\Scripts\\python.exe app.py
@@ -21,7 +25,6 @@ and whether it matched the expected defensive behavior. report.py turns that
 """
 
 import hashlib
-import hmac as hmac_lib
 import json
 import os
 import sys
@@ -31,18 +34,27 @@ from pathlib import Path
 
 import pytest
 import requests
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 # Make backend/ modules importable regardless of the directory pytest is invoked from.
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-from config import SHARED_SECRET, AES_MASTER_KEY          # noqa: E402
+from config import AES_MASTER_KEY                          # noqa: E402
 from crypto_modern import derive_tag_key, aes_gcm_encrypt  # noqa: E402
 from db import get_connection                              # noqa: E402
 
 BASE_URL = os.getenv("TEST_BACKEND_URL", "http://localhost:5000")
 EVIDENCE_DIR = Path(__file__).resolve().parent / "evidence"
 EVIDENCE_DIR.mkdir(exist_ok=True)
+
+# Dedicated test-suite device identity -- NOT a production secret, just a fixed
+# Ed25519 keypair so these tests can simulate "a trusted device" writing
+# without ever touching the real Pi's private key. Its public half must be
+# added to the running server's PI_PUBLIC_KEYS (comma-joined with the real
+# Pi's) for these tests to pass.
+_TEST_DEVICE_PRIVATE_KEY_HEX = "d363692caaa69f161db30d22a8d479b470857d496400da83edaace883162ead8"
+_test_signing_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(_TEST_DEVICE_PRIVATE_KEY_HEX))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -57,10 +69,12 @@ def require_server_running():
         )
 
 
-def sign_request(body: dict, secret: bytes = SHARED_SECRET, ts: str = None):
+def sign_request(body: dict, ts: str = None):
+    """Signs with the test suite's own fixed Ed25519 identity (see
+    _test_signing_key above) -- not the real Pi's key."""
     ts = ts or str(int(time.time()))
     payload = ts + json.dumps(body, sort_keys=True, separators=(',', ':'))
-    sig = hmac_lib.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()
+    sig = _test_signing_key.sign(payload.encode('utf-8')).hex()
     return ts, sig
 
 
@@ -91,8 +105,8 @@ def build_valid_product_body(tag_uid: str = None, nonce: str = None,
     return body, tag_uid, tag_uid_hash
 
 
-def post_signed_product(body: dict, secret: bytes = SHARED_SECRET, ts: str = None):
-    ts_, sig = sign_request(body, secret, ts)
+def post_signed_product(body: dict, ts: str = None):
+    ts_, sig = sign_request(body, ts)
     headers = {"X-Timestamp": ts_, "X-Signature": sig}
     return requests.post(BASE_URL + "/api/products", json=body, headers=headers, timeout=5)
 
