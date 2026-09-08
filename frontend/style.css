@@ -84,6 +84,11 @@ header.top p {
   transform: scale(0.98);
 }
 
+.btn-full {
+  display: block;
+  width: 100%;
+}
+
 .status-banner {
   border-radius: 14px;
   padding: 20px;

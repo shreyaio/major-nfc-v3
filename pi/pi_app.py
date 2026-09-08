@@ -257,7 +257,20 @@ def save_qr_fallback(url: str, tag_uid: str) -> str:
     return path
 
 
+NDEF_PAGE_WRITE_DELAY = float(os.getenv("NDEF_PAGE_WRITE_DELAY", "0.05"))
+NDEF_PAGE_WRITE_RETRIES = int(os.getenv("NDEF_PAGE_WRITE_RETRIES", "3"))
+
+
 def write_ndef(pn532, url: str):
+    """
+    Writes the NDEF TLV one 4-byte page at a time. Unlike the 4-page paper-cipher
+    block, this is ~29 pages for a typical URL -- long enough that a transient
+    I2C/RF hiccup (e.g. "Response frame preamble does not contain 0x00FF!") or
+    the tag not finishing its internal EEPROM write cycle before the next command
+    becomes a real risk. Each page write gets a few retries, and a short pause
+    after every successful write gives the tag's EEPROM cycle time to finish
+    before the next command lands.
+    """
     tlv = build_ndef_uri_message(url)
     pages_needed = len(tlv) // 4
     if pages_needed > NDEF_AVAILABLE_PAGES:
@@ -267,8 +280,23 @@ def write_ndef(pn532, url: str):
             f"switch to NTAG215/216 for more user memory."
         )
     for i in range(pages_needed):
-        page_data = tlv[i*4:(i+1)*4]
-        pn532.ntag2xx_write_block(NDEF_START_PAGE + i, list(page_data))
+        page_data = list(tlv[i*4:(i+1)*4])
+        page_num = NDEF_START_PAGE + i
+        last_err = None
+        for attempt in range(1, NDEF_PAGE_WRITE_RETRIES + 1):
+            try:
+                pn532.ntag2xx_write_block(page_num, page_data)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if attempt < NDEF_PAGE_WRITE_RETRIES:
+                    time.sleep(NDEF_PAGE_WRITE_DELAY * 2)  # extra settle time before retrying
+        if last_err is not None:
+            raise RuntimeError(
+                f"NDEF write failed at page {page_num} after {NDEF_PAGE_WRITE_RETRIES} attempts: {last_err}"
+            )
+        time.sleep(NDEF_PAGE_WRITE_DELAY)
 
 
 # ================= HELPERS =================
@@ -386,6 +414,7 @@ def main():
                 print("[NFC] NDEF write success:", verify_url)
             except Exception as e:
                 print("[WARN] NDEF write failed, falling back to a printable QR code:", e)
+                print(f"       Verify URL: {verify_url}")
                 try:
                     qr_path = save_qr_fallback(verify_url, tag)
                     print(f"       QR code saved: {qr_path} (print and attach to packaging)")
