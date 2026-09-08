@@ -19,7 +19,7 @@ from db import get_connection  # noqa: E402
 EVIDENCE_DIR = Path(__file__).resolve().parent / "evidence"
 OUTPUT = EVIDENCE_DIR / "report.md"
 
-CATEGORIES = ["replay", "clone", "bruteforce", "mitm"]
+CATEGORIES = ["replay", "clone", "device_impersonation", "bruteforce", "mitm", "birthday", "injection"]
 
 
 def load_evidence(name):
@@ -89,14 +89,24 @@ def main():
 
     lines.append("## Known limitations (documented, not solved by this suite)")
     lines.append("")
-    lines.append("- **Physical clone resistance**: verification is by server-side lookup, "
-                  "not by cryptographically proving physical tag authenticity. A cloned tag "
-                  "broadcasting a copied UID/NDEF link would still show \"authentic\".")
-    lines.append("- **MITM confidentiality**: tamper *detection* is proven without TLS; "
-                  "eavesdropping on plaintext HTTP traffic is still possible until Phase 2 "
-                  "(HTTPS via Cloudflare Tunnel) is deployed.")
+    lines.append("- **Physical clone resistance**: on browsers with Web NFC (Chrome for Android), "
+                  "verification live-reads the physical tag rather than trusting a saved link, which "
+                  "defeats copying a genuine tag's link onto an arbitrary blank tag. It does not defeat "
+                  "a specifically-sourced UID-rewritable (\"magic\") clone tag paired with copied "
+                  "content -- closing that needs SUN/SDM-capable hardware (e.g. NTAG 424 DNA).")
+    lines.append("- **MITM confidentiality**: tamper *detection* is proven independent of transport; "
+                  "the deployed system is served over HTTPS (Render-managed TLS), so this is not a "
+                  "live gap, but these tests specifically prove integrity holds even if it weren't.")
     lines.append("- **Brute force**: tag_uid_hash is SHA-256 of a 7-byte UID (2^56 space) -- "
                   "infeasible live against the rate limiter, not proven infeasible offline.")
+    lines.append("- **Injection**: 5 of 6 payloads in this run were intercepted by Cloudflare's edge "
+                  "WAF (Render's hosting infrastructure) before reaching this application at all -- "
+                  "see the INJECTION section above for which layer handled each case. Only the "
+                  "admin-endpoint query-parameter case reached and was handled by this app's own "
+                  "parameterized-query defense, so that defense is exercised but not exhaustively so.")
+    lines.append("- **Birthday attack**: a live collision attack against the real 64-bit nonce space "
+                  "is computationally infeasible to demonstrate directly (~5.4e9 requests needed); "
+                  "see the BIRTHDAY section for the empirical validation and analytical bound instead.")
     lines.append("")
 
     OUTPUT.write_text("\n".join(lines), encoding="utf-8")

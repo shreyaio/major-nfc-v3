@@ -11,6 +11,12 @@ Honest caveat (documented, not oversold): tag_uid_hash is SHA-256 of a 7-byte
 factory UID (a 2^56 search space). That's infeasible to brute-force live against
 a rate-limited endpoint -- this test demonstrates the rate limiter engages, not
 that the hash itself is brute-force-proof against an offline/precomputed attack.
+
+File is deliberately named to sort last (pytest runs test files in alphabetical
+order by default): these tests deliberately exhaust the per-minute rate limit
+on both POST /api/products and GET /api/verify, which would otherwise cause
+unrelated tests in the same run to intermittently see 429s from a budget these
+tests already spent. Running last means every other test gets a clean budget.
 """
 
 import hashlib
