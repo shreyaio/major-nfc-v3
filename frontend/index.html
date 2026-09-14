@@ -1,42 +1,49 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Medicine Authenticity Verification</title>
-<link rel="stylesheet" href="style.css">
-<link rel="manifest" href="manifest.json">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medicine pack check</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.json">
 </head>
 <body>
-  <div class="wrap">
-    <header class="top">
-      <h1>Medicine Authenticity Check</h1>
-      <p>Verify an NFC-tagged medicine package</p>
-    </header>
+<main>
+  <h1>Medicine pack check</h1>
 
-    <div class="card">
-      <form class="entry-form" id="entry-form">
-        <label for="tag-id">Tag ID</label>
-        <input id="tag-id" name="tag-id" type="text" placeholder="Paste or scan the tag ID"
-               autocomplete="off" autocapitalize="off" spellcheck="false" required>
-        <button type="submit">Verify</button>
-      </form>
-    </div>
+  <p class="lead">
+    To check a pack, <strong>tap it against your phone</strong>. The chip in the
+    pack writes its own code into the link, so no app is needed — on Android or
+    on iPhone.
+  </p>
 
-    <p class="footer-note">
-      Tapping a genuine tag with your phone opens the verification page automatically.
-      This manual entry field is for testing without a physical tag.
-    </p>
+  <div class="banner warn">
+    <strong>Manual entry is for testing only.</strong>
+    A code typed in by hand carries none of the protection a tap does: the whole
+    point of tapping is that the chip supplies a value that changes every time
+    and cannot be copied from a photograph or a screenshot. A manually entered
+    code can be copied by anyone who has seen the pack once.
   </div>
 
-  <script>
-    document.getElementById("entry-form").addEventListener("submit", function (e) {
-      e.preventDefault();
-      var id = document.getElementById("tag-id").value.trim();
-      if (id) {
-        window.location.href = "verify.html?t=" + encodeURIComponent(id);
-      }
-    });
-  </script>
+  <form id="manual-form">
+    <label for="m">Mirror value (<code>m</code>)</label>
+    <input id="m" name="m" placeholder="04A1B2C3D4E5F6x0001A7" maxlength="64"
+           autocomplete="off" spellcheck="false" required>
+
+    <label for="t">Binding token (<code>t</code>)</label>
+    <input id="t" name="t" placeholder="32 hex characters" maxlength="64"
+           autocomplete="off" spellcheck="false" required>
+
+    <button type="submit">Check this code</button>
+    <p class="note" id="manual-status" role="status" aria-live="polite"></p>
+  </form>
+
+  <p class="note">
+    <a href="/.well-known/transparency/latest">Transparency log</a> —
+    a daily signed record of every entry in the register, so you do not have to
+    take our word for what it contained.
+  </p>
+</main>
+<script src="/index.js" type="module"></script>
 </body>
 </html>

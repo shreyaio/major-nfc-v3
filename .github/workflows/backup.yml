@@ -1,0 +1,71 @@
+# Nightly encrypted backup and data retention. ARCHITECTURE.md §14.2.
+#
+# The dump is encrypted to an OFFLINE public key before it leaves the runner, so
+# the decryption key is on no server and in no CI secret (F8a). A backup that can
+# be read by whoever compromised the host is not a backup, it is a second copy of
+# the breach.
+#
+# TEST THE RESTORE QUARTERLY. An untested backup is not a backup. It is in
+# docs/OPERATOR_RUNBOOK.md with a date to fill in.
+
+name: backup
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client age
+
+      - name: Dump and encrypt
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PUBKEY: ${{ secrets.BACKUP_ENCRYPTION_PUBKEY }}
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y-%m-%d)"
+          # Pipe straight into age: the plaintext dump never touches the disk.
+          pg_dump --no-owner --no-privileges "$DATABASE_URL" \
+            | age -r "$BACKUP_PUBKEY" -o "backup-${stamp}.sql.age"
+          ls -lh "backup-${stamp}.sql.age"
+          echo "STAMP=${stamp}" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ env.STAMP }}
+          path: backup-*.sql.age
+          retention-days: 30
+
+      # Retention (F30, India's DPDP Act 2023). Consumer scan records tied to a
+      # time and a source are personal data even when the address is hashed, so
+      # they are deleted on a schedule rather than kept forever.
+      #
+      # pg_cron is not available on the Supabase free tier, which is why this
+      # lives in the nightly Action rather than in the database.
+      - name: Enforce retention
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+            DELETE FROM audit_log       WHERE created_at < NOW() - INTERVAL '90 days';
+            DELETE FROM idempotency_key WHERE created_at < NOW() - INTERVAL '30 days';
+            DELETE FROM rate_limit_bucket WHERE window_start < NOW() - INTERVAL '1 day';
+          SQL
+
+      # NOTE: deleting audit rows breaks the hash chain for the deleted range by
+      # design. The transparency log's published roots are what preserve the
+      # evidence that those entries existed — see docs/THREAT_MODEL.md.

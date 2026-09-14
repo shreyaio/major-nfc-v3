@@ -1,0 +1,34 @@
+{
+  "note": "Fixed vectors proving this copy is byte-for-byte the cipher the paper describes. Offline only.",
+  "shared_secret_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+  "key_chars": [
+    "A",
+    "q",
+    "7",
+    "~"
+  ],
+  "derived_keys": [
+    1,
+    11,
+    17,
+    24
+  ],
+  "expected_mac": "8976cade284fc62bcc111af25aa3b192e3c35aae8b6878c8c6d8c11913c7d601",
+  "cases": [
+    {
+      "plaintext": "MED-001",
+      "ciphertext_hex": "9a2a2296181898afafaf",
+      "roundtrip_ok": true
+    },
+    {
+      "plaintext": "AMOXICILLIN-500",
+      "ciphertext_hex": "826aa72ca4a1a42626a49c699a1818afafafafaf",
+      "roundtrip_ok": true
+    },
+    {
+      "plaintext": "2026-09-12",
+      "ciphertext_hex": "6481191b96189c969819",
+      "roundtrip_ok": true
+    }
+  ]
+}

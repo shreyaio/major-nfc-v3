@@ -1,0 +1,14 @@
+# Development and CI dependencies. NOT installed on Render.
+-r requirements.txt
+
+pytest==8.4.2
+pytest-timeout==2.4.0
+
+# The integration tests drive a LIVE SERVER over real HTTP rather than mocking
+# Flask's test client. v1 did this and was right to: a mock cannot catch a
+# middleware ordering bug, a CORS misconfiguration, or a header the WSGI layer
+# strips (§5.2, §17.3).
+requests==2.32.5
+
+ruff==0.14.4
+pip-audit==2.9.0

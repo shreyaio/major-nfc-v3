@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Report a pack</title>
+<link rel="stylesheet" href="/style.css">
+<!--
+  Consumer report form. ARCHITECTURE.md §10.4, §13.1.
+
+  A consumer holding a real suspicious pack is the single most valuable signal in
+  the system, and v1 discarded it entirely (F35). Rate limit it, triage it, but
+  never drop it.
+
+  Abuse control is proof-of-work, computed in report.js — not a CAPTCHA. A
+  CAPTCHA would put a third-party dependency between a patient and a safety
+  answer, and would send them to a tracking service to do it.
+
+  Every field except the note is optional. A report with nothing but "the pack
+  said do not use" is still worth having.
+-->
+</head>
+<body>
+<main>
+  <h1>Report a pack</h1>
+  <p class="lead">
+    Thank you for telling us. Everything below is optional except the description —
+    partial information is still useful.
+  </p>
+
+  <form id="report-form" novalidate>
+    <label for="pharmacy">Where did you get it? (pharmacy or shop name)</label>
+    <input id="pharmacy" name="pharmacy_name" type="text" maxlength="200" autocomplete="off">
+
+    <label for="city">Town or city</label>
+    <input id="city" name="city" type="text" maxlength="200" autocomplete="off">
+
+    <label for="note">What happened? <span class="required">required</span></label>
+    <textarea id="note" name="note" rows="5" maxlength="2000" required
+              placeholder="For example: the pack said &quot;do not use&quot;, the seal was broken, the tablets looked different."></textarea>
+
+    <label for="contact">How can we reach you, if you would like us to? (optional)</label>
+    <input id="contact" name="contact" type="text" maxlength="200" autocomplete="off">
+    <p class="note">
+      If you leave contact details we store them with the report. Leave it blank
+      to report anonymously — the report is just as useful.
+    </p>
+
+    <button type="submit" id="submit">Send report</button>
+    <p class="note" id="status" role="status" aria-live="polite"></p>
+  </form>
+
+  <!-- A button, not a javascript: URL — the CSP forbids inline script, and
+       that restriction is load-bearing rather than decorative. -->
+  <p class="note"><button type="button" id="back" class="linklike">Back to the result</button></p>
+</main>
+<script src="/report.js" type="module"></script>
+</body>
+</html>

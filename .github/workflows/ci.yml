@@ -1,0 +1,92 @@
+# Tests, lint, and dependency audit. ARCHITECTURE.md §14.4.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      # The unit tests need no database and no Flask app. They include the
+      # exhaustive verdict-machine enumeration, which is the strongest guarantee
+      # in the codebase (§17.2 item 1).
+      - name: Unit tests
+        run: pytest backend/tests/unit -q
+
+      # Cross-device vector tests: pi/crypto_envelope.py and
+      # backend/crypto_envelope.py must both satisfy vectors/envelope.json, and
+      # both UID normalisers must satisfy vectors/uid.json. A drift between the
+      # two deployables is invisible until production, so it is made a
+      # build-time failure (§15.3 rule 7).
+      - name: Cross-device vectors
+        run: pytest backend/tests/unit/test_cross_device.py -q
+
+      # Rule 4 in §0: nothing in backend/ may import from pi/, nothing in pi/
+      # may import from backend/, and nothing anywhere may import the paper
+      # cipher (§5.1, E8).
+      # These greps target USAGE, not prose. Several modules explain in a
+      # docstring why AES_MASTER_KEY is gone, and that is exactly the comment we
+      # want to keep — so the checks look for imports and env reads, never for
+      # the strings appearing anywhere at all.
+      - name: Deployable isolation
+        run: |
+          ! grep -rnE '^[[:space:]]*(from|import)[[:space:]]+pi\.' backend/ --include='*.py' --exclude-dir=tests
+          ! grep -rnE '^[[:space:]]*(from|import)[[:space:]]+backend\.' pi/ --include='*.py'
+          ! grep -rnE '^[[:space:]]*(from|import).*crypto_paper' backend/ pi/ --include='*.py'
+
+      # §21.4: if any v1 variable is still READ after Phase 3, something was
+      # missed. config.py additionally refuses to START if one of them is set.
+      - name: No v1 configuration is read anywhere
+        run: |
+          ! grep -rnE '(getenv|environ\[|environ\.get)\(?["'"'"'](SHARED_SECRET|AES_MASTER_KEY|PI_PUBLIC_KEYS|ADMIN_API_KEY|QR_FALLBACK_DIR|FRONTEND_VERIFY_BASE_URL)' backend/ pi/ edge/ frontend/ --include='*.py' --include='*.js' --exclude=config.py
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # F2a — a compromised transitive dependency fails the build rather than
+      # shipping.
+      - name: Audit dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit==2.9.0
+          pip-audit --strict -r backend/requirements.txt
+          pip-audit --strict -r pi/requirements.txt
+
+      # F1a — install from the generated hash lock if it exists. Hashes must be
+      # generated (pip-compile --generate-hashes), never hand-written.
+      - name: Verify the hash lock
+        run: |
+          if [ -f backend/requirements.lock ]; then
+            pip install --require-hashes -r backend/requirements.lock
+          else
+            echo "::warning::backend/requirements.lock is absent — run" \
+                 "pip-compile --generate-hashes to enable --require-hashes installs (F1a)"
+          fi

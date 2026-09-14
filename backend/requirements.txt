@@ -1,22 +1,42 @@
-blinker==1.9.0
-certifi==2026.2.25
-charset-normalizer==3.4.6
-click==8.3.1
-colorama==0.4.6
+# Backend dependencies (ARCHITECTURE.md §14.4).
+#
+# EXACT PINS, NOT RANGES. A range means the build you tested and the build you
+# deployed can differ, which is how a compromised transitive dependency arrives
+# unnoticed (F2a).
+#
+# To produce the hashed lock file that CI installs with --require-hashes (F1a):
+#
+#     pip install pip-tools
+#     pip-compile --generate-hashes --output-file=requirements.lock requirements.txt
+#
+# Regenerate it whenever you change a pin here, and commit it. Hashes must be
+# generated rather than written by hand — they cover every platform wheel PyPI
+# publishes for that version.
+
 Flask==3.1.3
 flask-cors==6.0.2
-flask-limiter
-idna==3.11
+gunicorn==23.0.0
+psycopg2-binary==2.9.11
+python-dotenv==1.2.2
+cryptography==46.0.4
+
+# Transitive, pinned so the tree is fully determined.
+blinker==1.9.0
+click==8.3.1
 itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
-psycopg2==2.9.11
-pycryptodome==3.23.0
-python-dotenv==1.2.2
-requests==2.32.5
-urllib3==2.6.3
 Werkzeug==3.1.6
-pyopenssl
-cryptography
-pytest
-gunicorn
+colorama==0.4.6
+cffi==2.0.0
+pycparser==2.23
+
+# NOTE ON WHAT IS GONE:
+#   flask-limiter  — replaced by backend/ratelimit.py (Postgres) plus the
+#                    Cloudflare Worker's KV limiter. Its memory:// store kept a
+#                    separate counter per gunicorn worker, so the configured
+#                    limits were silently N times looser than reported (F16).
+#   pycryptodome   — the paper cipher is gone from the deployed path (D3, §5.1).
+#   pyopenssl      — unused; `cryptography` provides everything needed.
+#   requests       — the backend makes no outbound HTTP calls. It is a test-only
+#                    dependency now and lives in requirements-dev.txt.

@@ -1,9 +1,12 @@
 {
-  "name": "Medicine Authenticity Check",
-  "short_name": "MedCheck",
-  "start_url": "index.html",
+  "name": "Medicine pack check",
+  "short_name": "Pack check",
+  "description": "Check whether a medicine pack matches the manufacturer's record.",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#ffffff",
+  "theme_color": "#1c4f8f",
+  "lang": "en",
   "icons": []
 }

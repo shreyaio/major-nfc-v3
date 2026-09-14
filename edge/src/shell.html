@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Check this pack</title>
+<!--
+  The instant shell. ARCHITECTURE.md §11.4.
+
+  Self-contained: inlined critical CSS, no external requests, no web fonts. It
+  renders in under 100 ms from the edge while the origin cold-starts, then
+  fetches the verdict and hands off to the same rendering code as
+  frontend/app.js.
+
+  Minimum 18px body text and high contrast are requirements, not preferences
+  (§13.3). A patient who cannot read the verdict is not protected by it.
+-->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #16191d; --muted: #5b6470; --line: #dfe3e8;
+    --ok: #0f7a3d; --warn: #9a6100; --bad: #a4262c; --info: #1c4f8f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #f2f4f6; --muted: #a8b0ba; --line: #2c3238;
+      --ok: #4bbf73; --warn: #e0a030; --bad: #ef6a70; --info: #79a9e8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 18px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 18px 48px;
+  }
+  main { max-width: 34rem; margin: 0 auto; }
+  h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 .5rem; }
+  .verdict { border-left: 6px solid var(--line); padding: 1rem 1.1rem; border-radius: 6px; background: color-mix(in srgb, var(--line) 18%, transparent); }
+  .verdict.ok { border-color: var(--ok); }
+  .verdict.warn { border-color: var(--warn); }
+  .verdict.bad { border-color: var(--bad); }
+  .verdict.info { border-color: var(--info); }
+  .action { margin-top: .9rem; font-weight: 600; }
+  .spinner {
+    width: 1.4rem; height: 1.4rem; border: 3px solid var(--line);
+    border-top-color: var(--info); border-radius: 50%;
+    animation: spin .9s linear infinite; display: inline-block; vertical-align: -.25rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+  dl.details { display: grid; grid-template-columns: auto 1fr; gap: .35rem 1rem; margin: 1.2rem 0 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  ul.checks { list-style: none; padding: 0; margin: 1.4rem 0 0; border-top: 1px solid var(--line); }
+  ul.checks li { display: flex; justify-content: space-between; gap: 1rem; padding: .55rem 0; border-bottom: 1px solid var(--line); }
+  .note { color: var(--muted); font-size: .92rem; margin-top: 1.4rem; }
+  a.report { display: inline-block; margin-top: 1rem; color: var(--info); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="heading"><span class="spinner" aria-hidden="true"></span> Checking this pack…</h1>
+  <div class="verdict info" id="verdict" role="status" aria-live="polite">
+    <p id="body">Reading the code from the tag and checking it against the manufacturer's register.</p>
+  </div>
+  <dl class="details" id="details" hidden></dl>
+  <ul class="checks" id="checks" hidden></ul>
+  <p class="note" id="binding-note"></p>
+  <p class="note">
+    This check records the time and a one-way hash of your network address so the
+    same pack cannot be checked thousands of times by a counterfeiter. Your exact
+    address is never stored.
+  </p>
+</main>
+<!--
+  app.js is EXTERNAL, never inline. The CSP allows script-src 'self' and nothing
+  else, which is what makes C4 (XSS via a hostile product name) unexploitable
+  even if output encoding were missed somewhere. The <style> above is inline
+  because a self-contained shell is the whole point of §11.4 — that costs
+  style-src 'unsafe-inline', which cannot execute script and is the narrower
+  concession of the two.
+
+  /app.js is not served by the Worker: it falls through to the origin proxy, so
+  there is exactly one copy of the rendering code and the shell and the origin
+  page cannot drift apart.
+-->
+<script src="/app.js" type="module" defer></script>
+</body>
+</html>

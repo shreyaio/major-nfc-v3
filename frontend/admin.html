@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operator console</title>
+<link rel="stylesheet" href="/style.css">
+<!--
+  Admin console. ARCHITECTURE.md §13.4.
+
+  Four panes: Posture, Batches, Incidents, Reports.
+
+  The token is pasted into a SESSION-ONLY field and held in a JS variable. It is
+  never written to localStorage — an XSS there would yield an admin token, and
+  a token that can recall a batch is worth stealing. It is short-lived anyway
+  (12 hours maximum, enforced at verification), so re-pasting is cheap.
+-->
+</head>
+<body class="admin">
+<main>
+  <h1>Operator console</h1>
+
+  <!-- Pane 1: POSTURE. The operating configuration must never be something you
+       have to remember. If tag locking is off, an amber bar says so. -->
+  <section id="posture-pane">
+    <h2>Posture</h2>
+    <div id="posture-banner" class="banner" role="status">Loading…</div>
+    <dl class="details" id="posture-details"></dl>
+  </section>
+
+  <section id="auth-pane">
+    <h2>Token</h2>
+    <p class="note">
+      Mint one offline with <code>backend/scripts/mint_admin_token.py</code>.
+      It is held in memory for this tab only and is never stored.
+    </p>
+    <label for="token">Admin token</label>
+    <input id="token" type="password" autocomplete="off" spellcheck="false">
+    <button type="button" id="use-token">Use this token</button>
+    <p class="note" id="auth-status" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- Pane 2: BATCHES. Two-person fields are required by a database CHECK. -->
+  <section id="batches-pane" hidden>
+    <h2>Batches</h2>
+    <table class="grid" id="batches-table">
+      <thead>
+        <tr><th>Batch</th><th>Product</th><th>Status</th><th>Used / quota</th><th>Opened by</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <details>
+      <summary>Open a new batch</summary>
+      <form id="open-batch-form">
+        <label for="b-ref">Batch reference</label>
+        <input id="b-ref" required placeholder="AMX-2026-09-001">
+        <label for="b-name">Product name</label>
+        <input id="b-name" required placeholder="Amoxicillin 500mg">
+        <label for="b-mfg">Manufacture date</label>
+        <input id="b-mfg" type="date" required>
+        <label for="b-shelf">Shelf life (days)</label>
+        <input id="b-shelf" type="number" min="1" max="3650" value="730" required>
+        <label for="b-quota">Quota</label>
+        <input id="b-quota" type="number" min="1" value="5000" required>
+        <label for="b-opened">Opened by</label>
+        <input id="b-opened" required>
+        <label for="b-counter">Countersigned by <span class="required">must be a different person</span></label>
+        <input id="b-counter" required>
+        <button type="submit">Open batch</button>
+      </form>
+    </details>
+  </section>
+
+  <!-- Pane 3: INCIDENTS. The triage queue that makes SUSPECT_DUPLICATE
+       recoverable by a human, and ONLY by a human. -->
+  <section id="incidents-pane" hidden>
+    <h2>Divergence incidents</h2>
+    <p class="note">
+      A divergence means a pack's tap counter did not increase the way it should
+      have. That is evidence of a duplicate in circulation — it is <em>not</em>
+      proof of which pack is the copy. Resolving one as a false positive is the
+      only way a flagged tag ever verifies normally again.
+    </p>
+    <table class="grid" id="incidents-table">
+      <thead>
+        <tr><th>When</th><th>Kind</th><th>Observed</th><th>Expected ≥</th><th>Bound</th><th>Resolve</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- Pane 4: REPORTS. -->
+  <section id="reports-pane" hidden>
+    <h2>Consumer reports</h2>
+    <table class="grid" id="reports-table">
+      <thead>
+        <tr><th>When</th><th>Verdict shown</th><th>Where</th><th>Note</th><th>Triage</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+<script src="/admin.js" type="module"></script>
+</body>
+</html>

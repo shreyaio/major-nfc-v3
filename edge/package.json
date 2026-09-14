@@ -1,0 +1,15 @@
+{
+  "name": "nfc-med-edge",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Cloudflare Worker edge layer for the NFC medicine authenticity system",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.131.2"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "_note": "Both pi/crypto_envelope.py and backend/crypto_envelope.py must produce EXACTLY this output from these inputs, and both must open it back to the same plaintext. AAD binds each ciphertext to its field name, which is what stops D11 at the primitive level.",
+  "field_recipient_priv_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "field_recipient_pub_hex": "8f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f",
+  "dek_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "ephemeral_priv_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+  "wrap_nonce_hex": "313131313131313131313131",
+  "nonces_hex": {
+    "batch_id": "212121212121212121212121",
+    "mfg_date": "222222222222222222222222",
+    "product_id": "232323232323232323232323",
+    "tag_uid": "242424242424242424242424"
+  },
+  "plaintext": {
+    "product_id": "AMOX-500-0001",
+    "batch_id": "AMX-2026-09-001",
+    "mfg_date": "2026-09-10",
+    "tag_uid": "04A1B2C3D4E5F6"
+  },
+  "sealed": {
+    "batch_id": {
+      "n": "212121212121212121212121",
+      "c": "29f447c1480cf2e0dcc5b03a631c90a66e6e92d66ee700675a908ca0750786"
+    },
+    "mfg_date": {
+      "n": "222222222222222222222222",
+      "c": "25c7357fedffa672d40f89de65e2775f65b3b808abe9935ac1ff"
+    },
+    "product_id": {
+      "n": "232323232323232323232323",
+      "c": "15412746e3e590a9ca81fc93bf45dc00fdc4887991babf5bc41fa6d1a2"
+    },
+    "tag_uid": {
+      "n": "242424242424242424242424",
+      "c": "3e0a96bf48ae09933320fb21f755f08ee55ebcbbd0e10eeac01870d825a3"
+    },
+    "enc_dek": "132c442be010fbd57e72603328aa76e71fccc1503aae219327d14d9c9993f472313131313131313131313131a78bdece6ae74856221282421f5f0965f502f8c7ba8d23cdb2ecc8ddfa05a12ebadb90106d146c237cbf36e21c1bf01e"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "_note": "CNT_BYTE_ORDER CALIBRATION RESULT. This file is a PLACEHOLDER until step \u00a720.7 has actually been run on a scrap tag. Do not guess the value: the Pi and the backend both refuse to start without it, because a wrong byte order makes every enrol_counter wrong and every velocity bound nonsense \u2014 silently.",
+  "calibrated": false,
+  "cnt_byte_order": null,
+  "procedure": [
+    "Enable the counter and mirror on a scrap tag.",
+    "READ_CNT (39h 02h) -> record the 3 raw bytes.",
+    "Read the NDEF and extract the 6 mirrored hex chars after the 'x'.",
+    "Whichever interpretation matches is the answer.",
+    "Record it in pi/.env AND backend/.env, and fill in this file."
+  ],
+  "observation": {
+    "read_cnt_raw_hex": null,
+    "mirrored_hex": null
+  },
+  "interpretations": {
+    "msb": "int.from_bytes(raw, 'big')",
+    "lsb": "int.from_bytes(raw, 'little')"
+  }
+}

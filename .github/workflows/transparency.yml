@@ -1,0 +1,59 @@
+# Daily signed Merkle root. ARCHITECTURE.md §14.3.
+#
+# This is the answer to "shouldn't this be on a blockchain?", and it costs
+# nothing. Anyone can prove a record existed on a given date via an inclusion
+# proof, and the custodian cannot silently rewrite history. No consortium, no
+# tokens, no per-transaction fee.
+#
+# TRANSPARENCY_KEY is a GitHub Actions secret and NEVER on the runtime backend.
+# The origin serves a signed object it could not itself have produced — that is
+# the entire point.
+
+name: transparency
+
+on:
+  schedule:
+    - cron: "42 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to commit log/<date>.json
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: pip install -r backend/requirements.txt
+
+      - name: Build and sign the root
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TRANSPARENCY_KEY: ${{ secrets.TRANSPARENCY_KEY }}
+        run: python backend/scripts/publish_transparency.py --out log
+
+      - name: Verify what we just published
+        run: python backend/scripts/verify_transparency.py --log-dir log --latest
+
+      - name: Commit the log
+        run: |
+          set -euo pipefail
+          git config user.name  "transparency-bot"
+          git config user.email "transparency-bot@users.noreply.github.com"
+          git add log/
+          if git diff --cached --quiet; then
+            echo "no new root today"
+            exit 0
+          fi
+          # Signed commits are a repository setting (§20.4); the bot commit
+          # inherits it. An unsigned history would let someone rewrite the log
+          # and the whole exercise with it.
+          git commit -m "transparency: root for $(date -u +%Y-%m-%d)"
+          git push

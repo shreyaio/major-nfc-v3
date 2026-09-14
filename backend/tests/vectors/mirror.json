@@ -1,0 +1,85 @@
+{
+  "_note": "The m parameter parser. Hostile inputs are 400s, not verdicts.",
+  "valid": [
+    {
+      "m": "04A1B2C3D4E5F6x0001A7",
+      "uid": "04A1B2C3D4E5F6",
+      "counter": 423,
+      "placeholder": false
+    },
+    {
+      "m": "04a1b2c3d4e5f6x0001a7",
+      "uid": "04A1B2C3D4E5F6",
+      "counter": 423,
+      "placeholder": false,
+      "why": "lowercase is uppercased before matching"
+    },
+    {
+      "m": "00000000000000x000000",
+      "uid": "00000000000000",
+      "counter": 0,
+      "placeholder": true,
+      "why": "B7 \u2014 the mirror was never enabled; MIRROR_DISABLED, never UNKNOWN"
+    },
+    {
+      "m": "04A1B2C3D4E5F6xFFFFFF",
+      "uid": "04A1B2C3D4E5F6",
+      "counter": 16777215,
+      "placeholder": false,
+      "why": "the 24-bit counter maximum"
+    },
+    {
+      "m": "\uff10\uff14A1B2C3D4E5F6x0001A7",
+      "uid": "04A1B2C3D4E5F6",
+      "counter": 423,
+      "placeholder": false,
+      "why": "B5 \u2014 full-width digits NFKC-normalise to ASCII and are then ACCEPTED. The security property is not that they are rejected; it is that the edge and the origin independently reach the SAME canonical value, so nothing can be smuggled past one parser and read differently by the other."
+    }
+  ],
+  "invalid": [
+    {
+      "m": "04A1B2C3D4E5F60001A7",
+      "why": "B3 \u2014 no separator"
+    },
+    {
+      "m": "04A1B2C3D4E5F6X0001A7extra",
+      "why": "B3 \u2014 trailing data"
+    },
+    {
+      "m": "04A1B2C3D4E5F6x0001A",
+      "why": "B3 \u2014 5-digit counter"
+    },
+    {
+      "m": "04A1B2C3D4E5F6x0001A7AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "why": "B4 \u2014 over the 64-char cap"
+    },
+    {
+      "m": "'; DROP TABLE products;--",
+      "why": "B3 \u2014 not that it could work, but it is a 400"
+    }
+  ],
+  "tokens": {
+    "valid": [
+      "9F3C0000000000000000000000000000",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    ],
+    "invalid": [
+      {
+        "t": "",
+        "why": "B6 \u2014 t is mandatory, there is no UID-only path"
+      },
+      {
+        "t": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "why": "too short"
+      },
+      {
+        "t": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "why": "too long"
+      },
+      {
+        "t": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+        "why": "not hex"
+      }
+    ]
+  }
+}

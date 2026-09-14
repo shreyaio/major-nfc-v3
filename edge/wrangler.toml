@@ -1,0 +1,32 @@
+# Cloudflare Worker configuration. ARCHITECTURE.md §11, §20.6.
+#
+# Free tier: 100,000 requests/day, Workers KV for state. That is the whole
+# infrastructure budget for the edge layer (decision D7 — free tiers only).
+
+name = "nfc-med-edge"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# shell.html is imported as a string module by src/index.js.
+rules = [
+  { type = "Text", globs = ["**/*.html"], fallthrough = false }
+]
+
+[vars]
+# Rate-limit and cache constants from §11.3/§11.4. ORIGIN_URL is NOT here — it
+# is a secret, set with `npx wrangler secret put ORIGIN_URL`.
+NEG_CACHE_TTL = "300"
+
+# KV namespaces. Create them once and paste the ids here (§20.6):
+#   npx wrangler kv namespace create RL
+#   npx wrangler kv namespace create NEG
+[[kv_namespaces]]
+binding = "RL"
+id = "9a28dcba22454087832882fcc2fb0248"
+
+[[kv_namespaces]]
+binding = "NEG"
+id = "05fd286784f247a08350c53fc246f3fb"
+
+[observability]
+enabled = true

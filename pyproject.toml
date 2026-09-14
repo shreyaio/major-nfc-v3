@@ -1,0 +1,67 @@
+# Lint configuration. Pinned explicitly so `ruff check .` means the same thing
+# on a laptop as it does in CI — an unpinned rule set changes under you on every
+# ruff release, and a lint gate that moves is a lint gate people switch off.
+
+[tool.ruff]
+line-length = 96
+target-version = "py313"
+extend-exclude = [
+    "venv",
+    ".venv",
+    # Byte-for-byte reproducibility of the research paper's cipher. It is not
+    # deployed, not imported, and deliberately not modernised — linting it would
+    # only tempt someone to "fix" it. See legacy/paper_cipher/README.md.
+    "legacy",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes — the ones that catch real bugs
+    "I",     # import sorting
+    "B",     # bugbear
+    "S",     # bandit — security
+    "RUF",   # ruff's own
+]
+ignore = [
+    "E501",    # line length is handled by the formatter, not by failing a build
+    "B008",    # function call in a default argument — intentional in fixtures
+    "S101",    # `assert` — used deliberately in tests and in invariant checks
+    "S311",    # `random` — used only for retry jitter, never for anything secret
+    "RUF001",  # ambiguous unicode in strings — the docs are full of § and em dashes
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert on hardcoded test vectors, which are not secrets.
+"backend/tests/**" = ["S105", "S106", "S107", "B011"]
+# gen_vectors.py deliberately uses fixed, trivial key material to pin the
+# cross-device vectors. Those bytes are published in the repo on purpose.
+"backend/scripts/gen_vectors.py" = ["S105", "S106"]
+# The enroller and the drainer catch broad exceptions on purpose: neither may
+# ever die mid-batch, and both log what happened before continuing.
+"pi/enroller.py" = ["BLE001", "S110"]
+"pi/drainer.py" = ["BLE001"]
+# audit.py's whole contract is that it never raises (§9.9).
+"backend/audit.py" = ["BLE001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "db", "errors", "keys", "audit", "metrics",
+                     "mirror", "ratelimit", "tag_index", "crypto_envelope",
+                     "crypto_rowsig", "crypto_signing", "auth_admin",
+                     "logging_setup", "routes", "services",
+                     "tag_layout", "tag_config", "ntag", "originality",
+                     "keyprovider", "outbox", "drainer", "clockcheck",
+                     "batch_session"]
+
+[tool.pytest.ini_options]
+# backend/pytest.ini holds the real configuration; this exists so `pytest` from
+# the repo root finds the same paths.
+testpaths = ["backend/tests"]
+pythonpath = ["backend", "pi"]
+markers = [
+    "integration: needs a live server (TEST_BASE_URL)",
+    "hardware: needs a PN532 and a real tag",
+]

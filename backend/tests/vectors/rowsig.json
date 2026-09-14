@@ -1,0 +1,50 @@
+{
+  "_note": "The canonical JSON and the signature over it. expiry_date, status, crypto_version and enrol_counter are INSIDE this signature \u2014 that is what stops an attacker with full database write access from changing any of them undetected (D12, D13).",
+  "row_signing_priv_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "row_signing_pub_hex": "29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7",
+  "row": {
+    "tag_index": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "binding_token_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "product_id_ct": "{\"c\":\"aabb\",\"n\":\"112233\"}",
+    "batch_id_ct": "{\"c\":\"ccdd\",\"n\":\"445566\"}",
+    "mfg_date_ct": "{\"c\":\"eeff\",\"n\":\"778899\"}",
+    "tag_uid_ct": "{\"c\":\"0011\",\"n\":\"aabbcc\"}",
+    "enc_dek": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "shelf_life": 730,
+    "expiry_date": "2028-09-09",
+    "crypto_version": "aes_gcm_v2",
+    "enrol_counter": 3,
+    "batch_ref": "AMX-2026-09-001",
+    "status": "active",
+    "device_id": "00000000-0000-4000-8000-000000000001",
+    "originality_status": "verified",
+    "enrolled_at": "2026-09-10T09:15:00+00:00",
+    "row_sig_alg": "ed25519",
+    "row_key_version": 1
+  },
+  "canonical": "{\"batch_id_ct\":\"{\\\"c\\\":\\\"ccdd\\\",\\\"n\\\":\\\"445566\\\"}\",\"batch_ref\":\"AMX-2026-09-001\",\"binding_token_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"crypto_version\":\"aes_gcm_v2\",\"device_id\":\"00000000-0000-4000-8000-000000000001\",\"enc_dek\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"enrol_counter\":3,\"enrolled_at\":\"2026-09-10T09:15:00+00:00\",\"expiry_date\":\"2028-09-09\",\"mfg_date_ct\":\"{\\\"c\\\":\\\"eeff\\\",\\\"n\\\":\\\"778899\\\"}\",\"originality_status\":\"verified\",\"product_id_ct\":\"{\\\"c\\\":\\\"aabb\\\",\\\"n\\\":\\\"112233\\\"}\",\"row_key_version\":1,\"row_sig_alg\":\"ed25519\",\"shelf_life\":730,\"status\":\"active\",\"tag_index\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"tag_uid_ct\":\"{\\\"c\\\":\\\"0011\\\",\\\"n\\\":\\\"aabbcc\\\"}\"}",
+  "signature": "6fef4225d1af79f2a8788ee46ee55a6c007683f30c1b9ca35c7fef7bb03e4229ebe44d5002dcb0076a6ded1e15496d1854125d96aaae294f916355ba4b662508",
+  "tampered": {
+    "_why": "Only expiry_date differs. The signature must NOT verify.",
+    "row": {
+      "tag_index": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "binding_token_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "product_id_ct": "{\"c\":\"aabb\",\"n\":\"112233\"}",
+      "batch_id_ct": "{\"c\":\"ccdd\",\"n\":\"445566\"}",
+      "mfg_date_ct": "{\"c\":\"eeff\",\"n\":\"778899\"}",
+      "tag_uid_ct": "{\"c\":\"0011\",\"n\":\"aabbcc\"}",
+      "enc_dek": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "shelf_life": 730,
+      "expiry_date": "2030-01-01",
+      "crypto_version": "aes_gcm_v2",
+      "enrol_counter": 3,
+      "batch_ref": "AMX-2026-09-001",
+      "status": "active",
+      "device_id": "00000000-0000-4000-8000-000000000001",
+      "originality_status": "verified",
+      "enrolled_at": "2026-09-10T09:15:00+00:00",
+      "row_sig_alg": "ed25519",
+      "row_key_version": 1
+    }
+  }
+}

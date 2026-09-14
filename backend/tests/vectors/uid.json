@@ -1,0 +1,53 @@
+{
+  "_note": "UID normalisation must be IDENTICAL on the Pi and the backend. A drift here makes every genuine tag read as UNKNOWN.",
+  "tag_index_key_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+  "valid": [
+    {
+      "input": "04A1B2C3D4E5F6",
+      "normalised": "04A1B2C3D4E5F6",
+      "tag_index": "ce4a4d94a640433e4cd3616d56af6f54079bf6115b48913b4dbfc0c5c787b407"
+    },
+    {
+      "input": "04a1b2c3d4e5f6",
+      "normalised": "04A1B2C3D4E5F6",
+      "tag_index": "ce4a4d94a640433e4cd3616d56af6f54079bf6115b48913b4dbfc0c5c787b407"
+    },
+    {
+      "input": "04:a1:b2:c3:d4:e5:f6",
+      "normalised": "04A1B2C3D4E5F6",
+      "tag_index": "ce4a4d94a640433e4cd3616d56af6f54079bf6115b48913b4dbfc0c5c787b407"
+    },
+    {
+      "input": "04-A1-B2-C3-D4-E5-F6",
+      "normalised": "04A1B2C3D4E5F6",
+      "tag_index": "ce4a4d94a640433e4cd3616d56af6f54079bf6115b48913b4dbfc0c5c787b407"
+    },
+    {
+      "input": " 04 A1 B2 C3 D4 E5 F6 ",
+      "normalised": "04A1B2C3D4E5F6",
+      "tag_index": "ce4a4d94a640433e4cd3616d56af6f54079bf6115b48913b4dbfc0c5c787b407"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "04A1B2C3D4E5",
+      "why": "too short \u2014 12 hex chars, not 14"
+    },
+    {
+      "input": "04A1B2C3D4E5F6AA",
+      "why": "too long"
+    },
+    {
+      "input": "04A1B2C3D4E5G6",
+      "why": "G is not hex"
+    },
+    {
+      "input": "04A1B2C3D4E5F",
+      "why": "13 hex chars"
+    },
+    {
+      "input": "",
+      "why": "empty"
+    }
+  ]
+}

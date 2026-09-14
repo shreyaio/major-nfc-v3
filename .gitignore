@@ -43,7 +43,21 @@ Thumbs.db
 # Secrets and env
 .env
 .env.*
+!.env.example
 secrets/
+
+# Generated key material (scripts/gen_keys.py) — PRIVATE KEYS. Never commit.
+keys.local.json
+keys.*.local.json
+
+# Pi durable outbox (runtime state, contains queued enrolment payloads)
+pi/outbox.db
+pi/outbox.db-wal
+pi/outbox.db-shm
+
+# Cloudflare Worker local state
+edge/.wrangler/
+edge/node_modules/
 
 # Certificates and keys
 *.pem

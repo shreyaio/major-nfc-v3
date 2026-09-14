@@ -1,22 +1,115 @@
-# Render Blueprint — lets Render auto-configure the service correctly.
-# In the Render dashboard: New + -> Blueprint -> select this repo -> it reads this file.
-# After creation, set the env vars below manually in the dashboard (they're marked
-# sync: false here on purpose, so their real values never live in the git repo).
+# Render Blueprint. ARCHITECTURE.md §9, §20.5.
+#
+# In the Render dashboard: New + -> Blueprint -> select this repo -> it reads
+# this file. Every secret is marked `sync: false` on purpose, so its real value
+# never lives in the git repo — you set it in the dashboard afterwards.
+#
+# TURN OFF AUTO-DEPLOY-ON-PUSH (§20.4). v1 auto-deployed from `main` on every
+# push, which makes a single bad push a production compromise (F4a). Deploy from
+# a tag or a manual trigger instead.
+
 services:
   - type: web
     name: nfc-med-backend
     runtime: python
     rootDir: backend
+    plan: free
+    autoDeploy: false
+    healthCheckPath: /health
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+
+    # WORKERS ARE PINNED AT 2 DELIBERATELY.
+    # v1 left this to Render's default. With the in-process rate limiter that v1
+    # used, each worker kept its own counter, so the configured limits were
+    # silently N times looser than reported (F16). v2's limiter is shared state
+    # (Postgres + the Worker's KV), but the pin stays: any evaluation that
+    # reports rate-limiter behaviour has to state the worker count, or the number
+    # means nothing.
+    #
+    # --timeout 30 bounds a slow POST (D20). DB_POOL_MAX=6 x 2 workers = 12
+    # connections, which fits Supabase's free-tier session pooler.
+    startCommand: >-
+      gunicorn "app:create_app()"
+      --bind 0.0.0.0:$PORT
+      --workers 2
+      --threads 4
+      --timeout 30
+      --graceful-timeout 10
+      --access-logfile -
+      --error-logfile -
+
     envVars:
+      # --- connection -------------------------------------------------------
+      # MUST be the SESSION POOLER string, not "Direct connection". The direct
+      # hostname (db.<ref>.supabase.co) resolves IPv6-only and will not connect
+      # from Render; the symptom is a database error in production while the
+      # same code works fine locally.
       - key: DATABASE_URL
         sync: false
-      - key: SHARED_SECRET
+
+      # --- envelope-wrapped operational keys (§7.6) -------------------------
+      # KEK must live somewhere with genuinely different access control from
+      # this dashboard — a password manager, not a second variable next to the
+      # blobs it unwraps. If it sits beside them, the envelope has bought
+      # nothing and threat-model capability (v) is not answered.
+      - key: KEK
         sync: false
-      - key: AES_MASTER_KEY
+      - key: FIELD_RECIPIENT_KEY_WRAPPED
         sync: false
-      - key: ADMIN_API_KEY
+      - key: FIELD_RECIPIENT_PUB
         sync: false
-      - key: FRONTEND_VERIFY_BASE_URL
+      - key: ROW_SIGNING_KEY_WRAPPED
         sync: false
+      - key: ROW_SIGNING_PUBKEY
+        sync: false
+      - key: ROW_KEY_VERSION
+        value: "1"
+
+      # --- backend-only secrets --------------------------------------------
+      # TAG_INDEX_KEY never goes on the Pi. ADMIN_TOKEN_PUBKEY is the PUBLIC
+      # half only — the admin signing key never reaches this process.
+      - key: TAG_INDEX_KEY
+        sync: false
+      - key: ADMIN_TOKEN_PUBKEY
+        sync: false
+      - key: IP_HASH_SEED
+        sync: false
+      - key: TRANSPARENCY_PUBKEY
+        sync: false
+
+      # --- posture, no defaults where a guess would corrupt data ------------
+      # CNT_BYTE_ORDER has no default on purpose (§6.4). The backend refuses to
+      # start without it, because guessing it silently makes every velocity
+      # bound nonsense.
+      - key: CNT_BYTE_ORDER
+        sync: false
+      - key: PUBLIC_HOST
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: TAG_LOCK_ENABLED
+        value: "false"
+      - key: ORIGINALITY_POLICY
+        value: reject
+      - key: EDGE_EXPECTED
+        value: "true"
+
+      # --- tuning (§9.7, §9.8) ---------------------------------------------
+      - key: MAX_TAPS_PER_DAY
+        value: "50"
+      - key: VELOCITY_GRACE
+        value: "20"
+      - key: VERIFY_TIME_FLOOR_MS
+        value: "120"
+      - key: NEG_CACHE_TTL
+        value: "300"
+      - key: POW_DIFFICULTY_BITS
+        value: "18"
+      - key: DB_POOL_MAX
+        value: "6"
+      - key: AUDIT_RETENTION_DAYS
+        value: "90"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PYTHON_VERSION
+        value: "3.13.0"

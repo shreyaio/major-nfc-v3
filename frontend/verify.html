@@ -1,36 +1,55 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Verification Result</title>
-<link rel="stylesheet" href="style.css">
-<link rel="manifest" href="manifest.json">
+<title>Check this pack</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1c4f8f">
+<!--
+  The /c landing page. ARCHITECTURE.md §13.2.
+
+  Three bands, top to bottom:
+    1. The verdict, large, colour-coded, with one concrete action.
+    2. The product details, when there are any.
+    3. What was checked — four labelled pass/fail rows plus the binding level
+       in plain words.
+
+  Band 3 is the transparency requirement. It is four lines, not a dashboard.
+
+  No inline scripts anywhere: the CSP forbids them, and that is what makes C4
+  (XSS via a hostile product name) unexploitable even if output encoding were
+  missed somewhere in app.js.
+-->
 </head>
 <body>
-  <div class="wrap">
-    <header class="top">
-      <h1>Medicine Authenticity Check</h1>
-      <p id="tag-echo"></p>
-    </header>
+<main>
+  <h1 id="heading" aria-busy="true">Checking this pack…</h1>
 
-    <div id="result-area">
-      <div class="status-banner loading">Checking tag&hellip;</div>
-    </div>
-
-    <a class="btn" href="index.html" style="display:block; text-align:center; text-decoration:none; margin-top:16px;">
-      Check another tag
-    </a>
-
-    <p class="footer-note">
-      On supported phones (Chrome for Android), this page reads your tag's chip
-      live rather than trusting a saved link &mdash; a link can be copied onto a
-      different tag, but a live read can't. Either way, the result itself is
-      always looked up and decrypted on our server; your device never sees any
-      key material.
-    </p>
+  <!-- Band 1 -->
+  <div class="verdict info" id="verdict" role="status" aria-live="polite">
+    <p id="body">Reading the code from the tag and checking it against the manufacturer's register.</p>
   </div>
 
-  <script src="app.js"></script>
+  <!-- Band 2 -->
+  <dl class="details" id="details" hidden></dl>
+
+  <!-- Band 3 -->
+  <h2 class="checks-heading">What was checked</h2>
+  <ul class="checks" id="checks" hidden></ul>
+  <p class="note" id="binding-note" hidden></p>
+
+  <p class="note privacy">
+    This check records the time and a one-way hash of your network address, so the
+    same pack cannot be checked thousands of times by a counterfeiter. Your exact
+    address is never stored, and the hash is useless after 24 hours.
+  </p>
+  <p class="note">
+    <a href="/">Enter a code manually</a> ·
+    <a href="/.well-known/transparency/latest">Transparency log</a>
+  </p>
+</main>
+<script src="/app.js" type="module"></script>
 </body>
 </html>

@@ -1,0 +1,11 @@
+{
+  "_note": "The request-signing payload, built identically by backend/crypto_signing.py and pi/drainer.py. It hashes the RAW body bytes rather than re-serialising parsed JSON, which removes a whole class of canonicalisation mismatch \u2014 and it lets the signature be checked BEFORE anything parses the body.",
+  "device_priv_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "device_pub_hex": "29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7",
+  "alg": "ed25519",
+  "timestamp": "1789000000",
+  "idempotency_key": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+  "raw_body_utf8": "{\"schema\":\"nfcmed.enrol.v2\"}",
+  "signed_payload_utf8": "nfcmed/v2/req:ed25519\n1789000000\n3f2504e0-4f89-41d3-9a0c-0305e82c3301\nf58378a630e2f1c6cb52b3d0e6bb2b4fc6035ccf5668d83fd1e42a36c495bd1d",
+  "signature": "e7db055b1e0a144e6c841d1960f2c1a1b7d21114871ab5fb8041a74ad3572baeffce2c299da9a2caee4f700423cc14988de74c556621b19bd9c49c547745ad08"
+}

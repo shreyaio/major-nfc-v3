@@ -1,6 +1,28 @@
-adafruit-blinka
-adafruit-circuitpython-pn532
-requests
-python-dotenv
-cryptography
-qrcode[pil]
+# Raspberry Pi enroller dependencies (ARCHITECTURE.md §12).
+# Separate from backend/requirements.txt on purpose: the hardware libraries have
+# no reason to be installed on the server, and psycopg2 has no reason to be on
+# the Pi. Nothing in pi/ imports from backend/ (rule 4 in §0).
+
+# --- NFC hardware ---
+adafruit-blinka==8.68.1
+adafruit-circuitpython-pn532==2.4.4
+
+# --- crypto ---
+# Ed25519 request signing (KeyProvider) and X25519 + AES-256-GCM envelope sealing.
+cryptography==46.0.4
+
+# secp128r1 for the NXP originality signature (§6.6). `cryptography` does not
+# support this curve; this package lets us define it by hand. If it is missing,
+# originality.py returns UNAVAILABLE and the record is stored as 'unverified' —
+# it never silently reports 'verified'.
+ecdsa==0.19.1
+
+# --- transport / config ---
+requests==2.32.5
+python-dotenv==1.2.2
+
+# NOTE: `qrcode` is GONE. v1 fell back to printing a QR of the same URL when the
+# NDEF write failed. A QR is static copyable data — a pack shipped with a QR
+# fallback has none of the physical binding this system exists to provide, and it
+# is indistinguishable to the consumer (F4, §12.2). If the tag write fails now,
+# the tag is discarded.

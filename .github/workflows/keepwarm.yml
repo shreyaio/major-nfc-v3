@@ -1,0 +1,33 @@
+# Keep the origin warm and the database awake. ARCHITECTURE.md §14.1.
+#
+# Render's free tier sleeps after ~15 minutes idle and the first request then
+# takes 30-50 seconds. A consumer standing at a pharmacy counter will not wait
+# 30 seconds, and abandonment means the system provides no protection at all —
+# which makes this a SECURITY property, not a convenience one (F22).
+#
+# It also touches Supabase, so a free project does not pause on idle (F26).
+#
+# GitHub's scheduled runners are best-effort and can be late under load. That is
+# acceptable here: the edge shell covers the gap, rendering instantly while the
+# origin wakes.
+
+name: keepwarm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the origin
+        run: curl -fsS --max-time 60 "${{ secrets.ORIGIN_URL }}/health" > /dev/null
+
+      - name: Ping the edge worker
+        run: curl -fsS --max-time 60 "${{ secrets.WORKER_URL }}/health" > /dev/null
