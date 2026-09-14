@@ -60,11 +60,21 @@ class SecretRedactor(logging.Filter):
         if isinstance(record.msg, str):
             record.msg = self.scrub(record.msg)
         if record.args:
-            try:
-                record.args = tuple(
-                    self.scrub(a) if isinstance(a, str) else a for a in record.args)
-            except TypeError:  # dict-style args
-                pass
+            if isinstance(record.args, dict):
+                # gunicorn's access logger uses %(name)s-style dict args. Iterating
+                # a dict yields its keys, not values — the old tuple() branch below
+                # would silently replace the whole args mapping with a tuple of key
+                # names, which then made getMessage()'s `msg % args` raise
+                # "format requires a mapping" for every single access log line.
+                record.args = {
+                    k: (self.scrub(v) if isinstance(v, str) else v)
+                    for k, v in record.args.items()}
+            else:
+                try:
+                    record.args = tuple(
+                        self.scrub(a) if isinstance(a, str) else a for a in record.args)
+                except TypeError:
+                    pass
         if record.exc_info:
             # Format now so the traceback text passes through the scrubber below
             # rather than being rendered later, unfiltered, by the formatter.
