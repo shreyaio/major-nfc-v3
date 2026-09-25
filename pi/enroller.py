@@ -372,6 +372,15 @@ def main() -> int:
                   f"error={row['last_error']}")
         return 0
 
+    # --calibrate MUST come before load_settings. Its whole purpose is to
+    # determine CNT_BYTE_ORDER, and load_settings refuses to start without that
+    # value — so gating calibration on it made the one command that produces it
+    # unreachable, with an error telling you to run the command you just ran.
+    # calibrate() needs the reader and nothing else.
+    if args.calibrate:
+        calibrate(open_pn532())
+        return 0
+
     settings = load_settings(args)
     provider = keyprovider.load_key_provider(
         os.getenv("KEY_PROVIDER", "file"),
@@ -383,10 +392,6 @@ def main() -> int:
     if args.drain:
         sent = drainer.drain_now(max_seconds=300)
         print(f"drained {sent}; depth now {box.depth()}")
-        return 0
-
-    if args.calibrate:
-        calibrate(open_pn532())
         return 0
 
     if not args.batch:
