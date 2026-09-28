@@ -1,16 +1,18 @@
-"""NTAG213 configuration pages and the irreversible lock sequence.
+"""NTAG216 configuration pages and the irreversible lock sequence.
 ARCHITECTURE.md §6.5, §6.7.
 
-Pages 29h (CFG0) and 2Ah (CFG1). Each is 4 bytes and must be written whole.
+Pages E3h (CFG0) and E4h (CFG1). Each is 4 bytes and must be written whole.
+These addresses are NTAG216's. NTAG213 puts them at 29h/2Ah -- writing this
+chip's config to those pages would land in user memory instead.
 
-CFG0 — page 29h: [MIRROR, RFUI, MIRROR_PAGE, AUTH0]
+CFG0 — page E3h: [MIRROR, RFUI, MIRROR_PAGE, AUTH0]
     MIRROR byte:  bit7..6  MIRROR_CONF   = 11b  (UID + counter)
                   bit5..4  MIRROR_BYTE   = computed, 0..3
                   bit3     RFUI          = 0
                   bit2     STRG_MOD_EN   = 1    (strong modulation, default on)
                   bit1..0  RFUI          = 0
 
-CFG1 — page 2Ah: [ACCESS, RFUI, RFUI, RFUI]
+CFG1 — page E4h: [ACCESS, RFUI, RFUI, RFUI]
     ACCESS byte:  bit7     PROT              0 = write protection only
                   bit6     CFGLCK            0 = config writable, 1 = PERMANENT
                   bit5     RFUI              0
@@ -44,15 +46,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 
-CFG0_PAGE = 0x29
-CFG1_PAGE = 0x2A
-PWD_PAGE = 0x2B
-PACK_PAGE = 0x2C
-STATIC_LOCK_PAGE = 0x02
-DYNAMIC_LOCK_PAGE = 0x28
+CFG0_PAGE = 0xE3
+CFG1_PAGE = 0xE4
+PWD_PAGE = 0xE5
+PACK_PAGE = 0xE6
+STATIC_LOCK_PAGE = 0x02   # same on every NTAG21x
+DYNAMIC_LOCK_PAGE = 0xE2
 
 AUTH0_DISABLED = 0xFF   # password protection off — testing posture
-AUTH0_PROTECT_CONFIG = 0x29  # protect page 29h onward — production posture
+AUTH0_PROTECT_CONFIG = 0xE3  # protect page E3h onward — production posture
 
 
 class LockRefused(RuntimeError):
@@ -63,8 +65,8 @@ def cfg0_bytes(mirror_byte: int, mirror_page: int, auth0: int) -> list[int]:
     """CFG0 with MIRROR_CONF = 11b (UID + counter mirror) and STRG_MOD_EN = 1."""
     if not 0 <= mirror_byte <= 3:
         raise ValueError(f"MIRROR_BYTE must be 0..3, got {mirror_byte}")
-    if not 0x04 <= mirror_page <= 0x27:
-        raise ValueError(f"MIRROR_PAGE must be 04h..27h, got {mirror_page:#04x}")
+    if not 0x04 <= mirror_page <= 0xE1:
+        raise ValueError(f"MIRROR_PAGE must be 04h..E1h, got {mirror_page:#04x}")
     mirror = (0b11 << 6) | ((mirror_byte & 0b11) << 4) | (1 << 2)
     return [mirror, 0x00, mirror_page, auth0 & 0xFF]
 
@@ -85,7 +87,7 @@ def testing_config(mirror_byte: int, mirror_page: int) -> tuple[list[int], list[
 
     Critical point that is easy to get wrong: the counter and mirror are
     INDEPENDENT of locking. Enabling NFC_CNT_EN and MIRROR_CONF is an ordinary
-    write to 29h/2Ah and stays reversible while CFGLCK = 0. So MTA works fully
+    write to E3h/E4h and stays reversible while CFGLCK = 0. So MTA works fully
     during testing with tags that remain rewritable (§6.7).
     """
     return (cfg0_bytes(mirror_byte, mirror_page, AUTH0_DISABLED),
@@ -125,9 +127,9 @@ def apply_lock_sequence(pn532, uid: str, *, tag_lock_enabled: bool,
 
     Order:
       1. Static lock bytes (page 02h, bytes 2-3) -> lock pages 03h-0Fh
-      2. Dynamic lock bytes (page 28h)           -> lock the remaining pages
-      3. Diversified PWD/PACK (2Bh/2Ch)
-      4. AUTH0 = 29h and CFGLCK = 1 in CFG0/CFG1
+      2. Dynamic lock bytes (page E2h)           -> lock the remaining pages
+      3. Diversified PWD/PACK (E5h/E6h)
+      4. AUTH0 = E3h and CFGLCK = 1 in CFG0/CFG1
     Then the caller power-cycles and reads once as a phone would, to confirm the
     mirror is still live.
     """
@@ -149,11 +151,12 @@ def apply_lock_sequence(pn532, uid: str, *, tag_lock_enabled: bool,
     page02 = ntag.fast_read(pn532, 0x02, 0x02)[:4]
     ntag.write_page(pn532, STATIC_LOCK_PAGE, bytes([page02[0], page02[1], 0xFF, 0xFF]))
 
-    # 2. Dynamic lock bytes: lock 10h upward in 2-page granularity, covering the
-    #    pages the NDEF actually occupies. The 4th byte is RFUI and must be BDh.
+    # 2. Dynamic lock bytes: lock 10h upward in 16-page granularity, covering
+    #    the pages the NDEF actually occupies. Byte 3 of page E2h is RFUI and is
+    #    00h on NTAG216 -- NTAG213's page 28h wanted BDh there instead.
     last_written_page = 0x04 + ndef_pages - 1
     dyn = _dynamic_lock_bytes(last_written_page)
-    ntag.write_page(pn532, DYNAMIC_LOCK_PAGE, bytes([*dyn, 0xBD]))
+    ntag.write_page(pn532, DYNAMIC_LOCK_PAGE, bytes([*dyn, 0x00]))
 
     # 3. Diversified password, then 4. AUTH0 + CFGLCK. PWD must be set before
     #    AUTH0 takes effect, or the tag is protected by an unknown password.
@@ -166,13 +169,21 @@ def apply_lock_sequence(pn532, uid: str, *, tag_lock_enabled: bool,
 
 
 def _dynamic_lock_bytes(last_page: int) -> list[int]:
-    """Three dynamic lock bytes covering pages 10h..27h in 2-page blocks.
+    """Three dynamic lock bytes covering pages 10h..E1h in 16-PAGE blocks.
 
-    LOCK byte 0 bit i -> pages (10h + 2i, 10h + 2i + 1), and so on across the
-    three bytes. Pages at or below 0Fh are already covered by the static locks.
+    NTAG216 geometry: LOCK byte 0 bit i -> pages 10h+16i .. 10h+16i+15,
+    continuing across the three bytes; the final block (byte 1, bit 6) is
+    partial and stops at E1h. Pages at or below 0Fh are already covered by the
+    static lock bytes.
+
+    THE GRANULARITY IS THE PART TO GET RIGHT. NTAG213 locks in 2-page blocks
+    over 10h..27h; NTAG216 locks in 16-page blocks over 10h..E1h. Carrying the
+    NTAG213 arithmetic onto this chip sets entirely the wrong bits, and the
+    lock bits are ONE-WAY -- there is no recovery, and the mistake is only
+    visible later as pages that cannot be written.
     """
     bits = [0, 0, 0]
-    for page in range(0x10, min(last_page, 0x27) + 1):
-        block = (page - 0x10) // 2
+    for page in range(0x10, min(last_page, 0xE1) + 1):
+        block = (page - 0x10) // 16
         bits[block // 8] |= 1 << (block % 8)
     return bits

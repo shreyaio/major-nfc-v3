@@ -94,7 +94,7 @@ def test_mirror_position_derives_from_the_offset():
     assert page == NDEF_START_PAGE + offset // 4
     assert byte == offset % 4
     assert 0 <= byte <= 3
-    assert 0x04 <= page <= 0x27
+    assert 0x04 <= page <= 0xE1
 
 
 def test_offset_accounts_for_the_full_tlv_header():
@@ -114,14 +114,20 @@ def test_the_host_budget_is_what_section_6_1_says():
     not the memory budget.
     """
     assert TLV_OVERHEAD == 69
-    assert MAX_HOST_LEN == 68
+    assert MAX_HOST_LEN == 183
     assert len("nfc-med.workers.dev") < MAX_HOST_LEN
 
     longest = "x" * (MAX_HOST_LEN - 4) + ".dev"
     tlv = build_ndef_tlv(build_verify_url(longest, TOKEN))
-    # The 137-byte cap is on the NDEF MESSAGE. The returned buffer is padded up
-    # to whole 4-byte pages, so it can be a few bytes larger — and it must still
-    # fit the 144 bytes of user memory, because page 28h onward is configuration.
+    # The cap is on the NDEF MESSAGE. The returned buffer is padded up to whole
+    # 4-byte pages, so it can be a few bytes larger — and it must still fit the
+    # 888 bytes of user memory, because page E2h onward is lock/configuration.
+    #
+    # On NTAG216 this budget comes from the READER, not the silicon: 252 bytes
+    # is all one FAST_READ can return in a single PN532 frame, and the whole
+    # record must be readable back in one go for the A13 byte-compare. The
+    # short-record format would allow 254. NTAG213 was bound by memory: 137 of
+    # 144 bytes, below both ceilings.
     assert len(tlv) <= USER_MEM_BYTES
     with pytest.raises(TagLayoutError):
         build_ndef_tlv(build_verify_url(longest + "x", TOKEN))
@@ -136,16 +142,28 @@ def test_ndef_fits_comfortably_for_a_realistic_host():
 
 def test_oversized_host_is_refused_rather_than_truncated():
     """F10. A truncated NDEF is a tag that opens a broken URL — and once locked,
-    it can never be fixed. Refuse to write it instead."""
+    it can never be fixed. Refuse to write it instead.
+
+    On NTAG216 the refusal comes from the short-record format rather than from
+    exhausting user memory, and it must still be a TagLayoutError. It previously
+    escaped as a bare ValueError out of bytes([259]), which NTAG213's much lower
+    cap had always masked.
+    """
     with pytest.raises(TagLayoutError) as excinfo:
-        build_ndef_tlv(build_verify_url("x" * 120 + ".example.com", TOKEN))
-    assert "137" in str(excinfo.value)
+        build_ndef_tlv(build_verify_url("x" * 200 + ".example.com", TOKEN))
+    assert "short record" in str(excinfo.value)
 
 
 def test_mirror_refuses_to_overrun_user_memory():
-    long_host = "x" * 110 + ".com"
+    """MIRROR_PAGE must stay inside user memory (04h..E1h on NTAG216).
+
+    With 888 bytes, reaching the end takes a host far longer than any NDEF record
+    could carry — build_ndef_tlv refuses ~700 characters earlier. So this asserts
+    the bound in isolation, which is what would catch a future change to the
+    offset arithmetic. On NTAG213 (04h..27h) a 114-character host was enough.
+    """
     with pytest.raises(TagLayoutError):
-        mirror_position(long_host)
+        mirror_position("x" * 880 + ".com")
 
 
 # ================================================================ TLV BYTES ===

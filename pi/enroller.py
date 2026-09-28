@@ -16,7 +16,7 @@ THE ENROLMENT SEQUENCE, and why each step is where it is:
        FAILED      -> REJECT, quarantine, audit, count the rejection (A2, F9a)
        UNAVAILABLE -> proceed, record originality_status='unverified'
   5. token = 16 random bytes -> 32 hex chars.
-  6. Build the URL and the NDEF TLV (raises if > 137 bytes).
+  6. Build the URL and the NDEF TLV (raises if over tag_layout.MAX_NDEF_BYTES).
   7. Write the TLV from page 04h, one page at a time, 3 retries + ~50 ms settle.
   8. FAST_READ and BYTE-COMPARE. Mismatch: retry once, then DISCARD THE TAG.
   9. Assert the 21 bytes at mirror_position() are the all-zero placeholder.
@@ -122,7 +122,7 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
     print(f"  UID {uid}")
 
     # 3. GET_VERSION gate (A12).
-    version = ntag.assert_ntag213(pn532)
+    version = ntag.assert_ntag216(pn532)
 
     # 4. Originality signature (L1). Enrolment only — READ_SIG is unreachable
     #    from Web NFC and from iOS background reading, so this protects
@@ -290,9 +290,38 @@ def calibrate(pn532, byte_order_guess: str = "msb") -> str:
     read the mirrored ASCII, and see which interpretation matches. If the Pi and
     the backend disagree on this, every enrol_counter is wrong and the velocity
     bound is nonsense — a silent, hard-to-debug failure.
+
+    THIS WRITES TO THE TAG, and it has to. A virgin NTAG216 ships with
+    NFC_CNT_EN = 0, so READ_CNT is NAKed until the counter is switched on, and
+    there is no NDEF record for the chip to mirror into until one is written.
+    An earlier version issued READ_CNT against an untouched tag and died on a
+    bare InCommunicateThru status, so the comparison this function exists to
+    make was never actually possible.
+
+    Use a SCRAP tag. It ends up looking enrolled, but its token is throwaway and
+    it is registered nowhere — tapping it will return `unknown`.
     """
+    host = os.getenv("PUBLIC_HOST", "")
+    if not host:
+        raise SystemExit(
+            "PUBLIC_HOST must be set in pi/.env before calibrating — the mirror "
+            "position is computed from it.")
+
     uid_bytes = wait_for_tag(pn532)
-    ntag.assert_ntag213(pn532)
+    ntag.assert_ntag216(pn532)
+
+    # A virgin tag has NFC_CNT_EN = 0 and no NDEF record, so there is nothing to
+    # read and nothing to mirror into. Write a throwaway record and switch the
+    # counter and mirror on, exactly as enrolment would.
+    token_hex = secrets.token_bytes(tag_layout.BINDING_TOKEN_BYTES).hex().upper()
+    tlv = tag_layout.build_ndef_tlv(tag_layout.build_verify_url(host, token_hex))
+    mirror_page, mirror_byte = tag_layout.mirror_position(host)
+    ntag.write_ndef(pn532, tlv)
+    ntag.verify_ndef(pn532, tlv)
+    cfg0, cfg1 = tag_config.testing_config(mirror_byte, mirror_page)
+    tag_config.write_config(pn532, cfg0, cfg1)
+    _power_cycle(pn532)
+
     raw = ntag.transceive(pn532, [ntag.CMD_READ_CNT, 0x02], 3)
     msb = int.from_bytes(raw, "big")
     lsb = int.from_bytes(raw, "little")
@@ -302,7 +331,8 @@ def calibrate(pn532, byte_order_guess: str = "msb") -> str:
     print(f"  as MSB-first: {msb}  ({msb:06X})")
     print(f"  as LSB-first: {lsb}  ({lsb:06X})")
     print()
-    print("Now read the tag's NDEF URL with a phone and look at the 6 hex digits")
+    print("Now TAP THIS TAG with a phone. The URL that opens carries the counter")
+    print("the chip mirrored into it; look at the 6 hex digits")
     print("after the 'x' in the m= parameter. Whichever line above matches is your")
     print("CNT_BYTE_ORDER. Record it in BOTH pi/.env and backend/.env, and write")
     print("it into backend/tests/vectors/counter.json.")

@@ -1,4 +1,4 @@
-"""NTAG213 tag layout: verify URL, NDEF TLV, and the ASCII-mirror position.
+"""NTAG216 tag layout: verify URL, NDEF TLV, and the ASCII-mirror position.
 ARCHITECTURE.md §6.1, §6.2.
 
 Every byte offset here is load-bearing. The chip mirrors live UID + counter into
@@ -12,11 +12,34 @@ tested in backend/tests/unit/test_tag_layout.py.
 """
 from __future__ import annotations
 
-# NTAG213 user memory is pages 04h-27h (4-39), 144 bytes. With the standard
-# Capability Container the largest NDEF message is 137 bytes.
+# NTAG216 user memory is pages 04h-E1h (4-225), 888 bytes, and the factory
+# Capability Container declares an NDEF data area of 6Dh x 8 = 872 bytes.
+#
+# WE DELIBERATELY DO NOT USE THAT MUCH. This builder emits a SHORT record with a
+# single-byte TLV length field, which caps the NDEF message at 254 bytes however
+# much memory the chip has. So on NTAG216 the RECORD FORMAT is the binding
+# constraint, not the silicon -- the reverse of NTAG213, where 144 bytes of user
+# memory bound a 137-byte cap.
+#
+# Supporting the 3-byte long form to reach 872 bytes would be pure complexity:
+# the verify URL is ~70 bytes and the host budget below is already far wider than
+# DNS permits. The extra memory is headroom we have no use for.
 NDEF_START_PAGE = 0x04
-USER_MEM_BYTES = 144
-MAX_NDEF_BYTES = 137
+USER_MEM_BYTES = 888
+
+# Two ceilings, and the TIGHTER one wins.
+#
+#   MAX_RECORD_BYTES  254  largest record a single-byte TLV length can describe
+#   PN532_FRAME_BYTES 252  most one FAST_READ can return in a single PN532 frame
+#
+# The second is the one that binds. ntag.read_ndef() reads the whole record back
+# in ONE FAST_READ for the mandatory byte-compare (A13), so a record that cannot
+# be read back in one frame cannot be verified -- and an unverifiable write is
+# exactly what that compare exists to prevent. NTAG213's 137-byte cap sat below
+# both ceilings, so neither was ever reachable there.
+MAX_RECORD_BYTES = 254
+PN532_FRAME_BYTES = 252
+MAX_NDEF_BYTES = PN532_FRAME_BYTES
 
 # 21 chars exactly: 14 hex of UID + the chip's automatic 'x' separator (78h)
 # + 6 hex of counter. MIRROR_CONF = 11b needs all 21 bytes contiguous and free.
@@ -48,7 +71,7 @@ def build_verify_url(host: str, token_hex: str) -> str:
 def build_ndef_tlv(url: str) -> bytes:
     """Type-2-Tag NDEF URI record, TLV-wrapped, padded to whole 4-byte pages.
 
-    Refuses to build anything over the 137-byte limit rather than silently
+    Refuses to build anything over MAX_NDEF_BYTES rather than silently
     truncating — a truncated NDEF is the F10 failure, a tag that opens a broken
     URL and can never be fixed once locked.
     """
@@ -59,14 +82,22 @@ def build_ndef_tlv(url: str) -> bytes:
 
     rest = url[len(prefix):].encode("ascii")
     payload = bytes([abbrev]) + rest
-    if len(payload) > 0xFF:
-        raise TagLayoutError("payload too long for a short record")
+    # TWO length fields bind here, not one: the record's own payload-length byte
+    # AND the TLV length byte, which covers the 4-byte record header as well.
+    # The TLV field is the tighter of the two, so it is the one to check.
+    # Checking only the payload against 0xFF let a 255-byte payload through and
+    # then died inside bytes([259]) with a bare ValueError -- unreachable while
+    # NTAG213's 137-byte cap caught everything first, reachable on NTAG216.
+    if len(payload) > MAX_RECORD_BYTES - 4:
+        raise TagLayoutError(
+            f"payload {len(payload)}B too long for a short record "
+            f"(max {MAX_RECORD_BYTES - 4}B) — use a shorter host")
 
     record = bytes([0xD1, 0x01, len(payload), 0x55]) + payload
     tlv = bytes([0x03, len(record)]) + record + bytes([0xFE])
     if len(tlv) > MAX_NDEF_BYTES:
         raise TagLayoutError(
-            f"NDEF {len(tlv)}B exceeds NTAG213 limit {MAX_NDEF_BYTES}B — "
+            f"NDEF {len(tlv)}B exceeds NTAG216 limit {MAX_NDEF_BYTES}B — "
             f"use a shorter host")
     tlv += b"\x00" * ((4 - len(tlv) % 4) % 4)  # pad to whole pages
     return tlv
@@ -97,8 +128,8 @@ def mirror_position(host: str) -> tuple[int, int]:
         raise TagLayoutError("mirror would overrun user memory")
     if page < NDEF_START_PAGE:
         raise TagLayoutError("MIRROR_PAGE must be >= 04h")
-    if page > 0x27:
-        raise TagLayoutError("MIRROR_PAGE must be <= 27h (end of user memory)")
+    if page > 0xE1:
+        raise TagLayoutError("MIRROR_PAGE must be <= E1h (end of NTAG216 user memory)")
     return page, byte
 
 

@@ -78,7 +78,7 @@ answer the consumer's actual question — *is this object the one the record des
 v1's only answer was a Web NFC live read, which works on one browser on one OS and is
 defeated by a UID-rewritable tag.
 
-v2 changes that by using three NTAG213 hardware features that v1 left switched off:
+v2 changes that by using three NTAG216 hardware features that v1 left switched off:
 
 | Feature | What it gives us | Where used |
 |---|---|---|
@@ -90,7 +90,7 @@ The mechanism built on this is **Monotonic Tap Attestation (MTA)** — the serve
 the highest counter it has seen per tag; a value that is not strictly greater is
 evidence of a duplicate. The detection layer is **Counter Divergence Detection (CDD)**.
 
-**The security claim changes shape.** v2 does **not** prevent cloning. NTAG213 holds
+**The security claim changes shape.** v2 does **not** prevent cloning. NTAG216 holds
 no secret and can prove nothing cryptographically. v2 *detects an in-circulation clone
 with bounded expected latency*. Every verdict string, log line and doc comment in this
 codebase must respect that distinction. Specifically: **the system never emits the
@@ -106,18 +106,22 @@ word "counterfeit" or "fake" as a verdict.** The strongest negative verdict is
 | D3 | **Paper cipher removed entirely** | `crypto_paper.py` deleted from the deployed backend and from `pi_app.py`. Single crypto version `aes_gcm_v2`. Anything else is a hard reject, not a fallback. §5, §7.2 |
 | D4 | **Quantum / ML-DSA: out of scope for now** | Ed25519 only — but every signature and every ciphertext carries an explicit `alg` version field so ML-DSA can be added later without a schema migration. §7.7 |
 | D5 | **Tag locking OFF by default (`TAG_LOCK_ENABLED=false`)** | Tags stay rewritable for testing. The counter and mirror still work — see §6.7 for why these are independent. Attacks A7 and A8 remain open until the flag is turned on; the system reports this honestly in `/health`. |
-| D6 | **No custom domain** — Worker on `*.workers.dev`, origin on `*.onrender.com` | URL fits NTAG213 comfortably (§6.1), but the B1 homograph defence stays weak. Stated, not hidden. |
+| D6 | **No custom domain** — Worker on `*.workers.dev`, origin on `*.onrender.com` | URL fits NTAG216 comfortably (§6.1), but the B1 homograph defence stays weak. Stated, not hidden. |
 | D7 | **Free tiers only** | Cloudflare Workers + KV, Render web service, Supabase Postgres, GitHub Actions. No paid KMS, no Redis, no queue. §14 |
 
 ### 1.2 Two v1 claims that were wrong, corrected here
 
-**The `AUTH0` value in the source design doc is wrong.** It specified `AUTH0 = 2Bh`
-and described it as protecting the configuration pages. On NTAG213, page `29h` is
-CFG0, `2Ah` is CFG1 (which holds `NFC_CNT_EN`), `2Bh` is PWD and `2Ch` is PACK.
-`AUTH0 = 2Bh` therefore protects only PWD/PACK, which are already unreadable by
-design — it protects nothing that matters. To stop attack A8 (an attacker writing
-`NFC_CNT_EN = 0` to kill the counter) you need **`AUTH0 = 29h`**. This build uses
-`29h`. See §6.5.
+**The `AUTH0` value in the source design doc is wrong.** It specified `AUTH0 = E5h`
+and described it as protecting the configuration pages. On NTAG216, page `E3h` is
+CFG0, `E4h` is CFG1 (which holds `NFC_CNT_EN`), `E5h` is PWD and `E6h` is PACK.
+An `AUTH0` pointed at the PWD page protects only PWD/PACK, which are already
+unreadable by design — it protects nothing that matters. To stop attack A8 (an
+attacker writing `NFC_CNT_EN = 0` to kill the counter) you need **`AUTH0 = E3h`**.
+This build uses `E3h`. See §6.5.
+
+The design doc's `E5h`/`E3h` figures were NTAG216 addresses. Every configuration
+page moves on NTAG216, which is the substantive reason the two chips are not
+interchangeable in this build — see §6.1.
 
 **The identifier space is 2^48, not 2^56.** SN0 is fixed at `04h` on all NXP chips,
 and UIDs within a reel are contiguous. An unsalted `SHA-256(UID)` lookup key is
@@ -135,7 +139,7 @@ worker, consumer and admin frontend — plus ops automation and a test scaffold.
 **Hard constraints:**
 
 - Zero recurring infrastructure cost. Free tiers only.
-- Keep NTAG213. No NTAG 424 DNA, no secure-element tags.
+- Keep NTAG216. No NTAG 424 DNA, no secure-element tags.
 - Must work on an unmodified consumer phone with no app, on Android **and iOS**.
 - Tags must stay rewritable during this build phase (`TAG_LOCK_ENABLED=false`).
 
@@ -281,7 +285,7 @@ major-project-nfc/
 │
 ├── pi/
 │   ├── enroller.py                      [NEW] main loop (replaces pi_app.py)
-│   ├── ntag.py                          [NEW] raw NTAG213 commands via PN532 (§6.8)
+│   ├── ntag.py                          [NEW] raw NTAG216 commands via PN532 (§6.8)
 │   ├── tag_layout.py                    [NEW] URL, NDEF TLV, mirror offset (§6.2)
 │   ├── tag_config.py                    [NEW] CFG0/CFG1 bytes, lock sequence (§6.5)
 │   ├── originality.py                   [NEW] secp128r1 READ_SIG verify (§6.6)
@@ -406,15 +410,41 @@ Build this early — it is Phase 1, not Phase 3.
 
 ---
 
-## 6. Tag layer — NTAG213 specification
+## 6. Tag layer — NTAG216 specification
 
 Everything in this section comes from the NXP NTAG213/215/216 datasheet (Rev 3.2).
 Values are exact. Get them wrong and you either brick tags or silently lose MTA.
 
 ### 6.1 Memory map and URL budget
 
-NTAG213 user memory: **pages 04h–27h (4–39), 144 bytes**. Maximum NDEF message with
-the standard Capability Container: **137 bytes**.
+NTAG216 user memory: **pages 04h–E1h (4–225), 888 bytes**. Its Capability Container
+declares an NDEF data area of `6Dh × 8` = **872 bytes**.
+
+**We deliberately do not use that much.** Two ceilings sit below the silicon, and
+the tighter one wins:
+
+| Ceiling | Bytes | Where it comes from |
+|---|---|---|
+| Short-record NDEF | 254 | `tag_layout.py` emits a single-byte TLV length field |
+| **PN532 frame** | **252** | most one `FAST_READ` can return in one frame |
+
+**252 is the cap.** `ntag.read_ndef()` reads the whole record back in a *single*
+`FAST_READ` for the mandatory byte-compare (A13), so a record that cannot be read
+back in one frame cannot be verified — and an unverifiable write is precisely what
+that compare exists to prevent.
+
+So on NTAG216 the *reader* is the binding constraint, not the silicon and not even
+the record format — the reverse of NTAG213, where 144 bytes of user memory bound a
+137-byte message, below both ceilings and therefore never reaching either.
+Supporting the 3-byte long form to reach 872 bytes would buy nothing on its own:
+the frame limit would still bind, and the verify URL is ~93 bytes regardless.
+
+**This chip is not interchangeable with NTAG213.** User memory ends at E1h rather
+than 27h, and every configuration page moves with it (§6.5). Writing NTAG213's
+config addresses to an NTAG216 lands in the middle of user memory: it corrupts the
+NDEF record, never enables the mirror, and reports no error until the tag fails the
+live-mirror confirmation. `assert_ntag216()` rejects any other storage-size byte for
+exactly this reason.
 
 v1 used pages 4–7 for the paper-cipher block. That is gone (§5.1), so **the NDEF TLV
 starts at page 04h, byte 0**. This matters: every mirror offset in §6.2 is computed
@@ -444,10 +474,10 @@ Budget check with the Worker host (`<worker>.<subdomain>.workers.dev`, ~24 chars
 | `&t=` | 3 |
 | `t` value | 32 |
 | Terminator TLV (`FE`) | 1 |
-| **Total** | **~93 of 137** |
+| **Total** | **~93 of 252** |
 
 Comfortable. **Hard rule: `tag_layout.py` must compute this at enrolment time and
-refuse to write if the TLV exceeds 137 bytes, rather than silently truncating.** A
+refuse to write if the TLV exceeds 252 bytes, rather than silently truncating.** A
 truncated NDEF is the F10 failure — a tag that opens a broken URL.
 
 ### 6.2 Mirror placement — the exact computation
@@ -480,7 +510,7 @@ MIRROR_BYTE =      placeholder_offset %  4
 # pi/tag_layout.py
 NDEF_START_PAGE   = 0x04
 USER_MEM_BYTES    = 144
-MAX_NDEF_BYTES    = 137
+MAX_NDEF_BYTES    = 252   # PN532 frame limit, not the chip
 MIRROR_PLACEHOLDER = "00000000000000x000000"   # 21 chars, exactly
 BINDING_TOKEN_HEX_LEN = 32
 
@@ -503,7 +533,7 @@ def build_ndef_tlv(url: str) -> bytes:
     record = bytes([0xD1, 0x01, len(payload), 0x55]) + payload
     tlv = bytes([0x03, len(record)]) + record + bytes([0xFE])
     if len(tlv) > MAX_NDEF_BYTES:
-        raise ValueError(f"NDEF {len(tlv)}B exceeds NTAG213 limit {MAX_NDEF_BYTES}B")
+        raise ValueError(f"NDEF {len(tlv)}B exceeds NTAG216 limit {MAX_NDEF_BYTES}B")
     tlv += b"\x00" * ((4 - len(tlv) % 4) % 4)          # pad to whole pages
     return tlv
 
@@ -566,9 +596,9 @@ startup if the setting is unset.
 
 ### 6.5 Configuration bytes
 
-Pages `29h` (CFG0) and `2Ah` (CFG1). Each is 4 bytes; you must write the whole page.
+Pages `E3h` (CFG0) and `E4h` (CFG1). Each is 4 bytes; you must write the whole page.
 
-**CFG0 — page 29h:** `[MIRROR, RFUI, MIRROR_PAGE, AUTH0]`
+**CFG0 — page E3h:** `[MIRROR, RFUI, MIRROR_PAGE, AUTH0]`
 
 ```
 MIRROR byte:  bit7..6  MIRROR_CONF   = 11b  (UID + counter)
@@ -580,7 +610,7 @@ MIRROR byte:  bit7..6  MIRROR_CONF   = 11b  (UID + counter)
 MIRROR = (0b11 << 6) | (mirror_byte << 4) | (1 << 2)
 ```
 
-**CFG1 — page 2Ah:** `[ACCESS, RFUI, RFUI, RFUI]`
+**CFG1 — page E4h:** `[ACCESS, RFUI, RFUI, RFUI]`
 
 ```
 ACCESS byte:  bit7     PROT              0 = write protection only (reads stay open)
@@ -625,8 +655,8 @@ the kind of considered trade-off reviewers reward:
   a security control into a DoS weapon against your own product. Since the password
   only guards reconfiguration, and lock bytes already make the data area read-only,
   the brute-force risk is low and the bricking risk is real. Leave `AUTHLIM = 0`.
-- **`AUTH0 = 29h`, not `2Bh`.** See §1.2. `2Bh` protects only PWD/PACK, which are
-  already unreadable. `29h` is what actually stops an attacker writing
+- **`AUTH0 = E3h`, not `E5h`.** See §1.2. `E5h` protects only PWD/PACK, which are
+  already unreadable. `E3h` is what actually stops an attacker writing
   `NFC_CNT_EN = 0` to kill the counter (A8).
 
 ### 6.6 Originality signature (L1) — enrolment only
@@ -669,22 +699,24 @@ reject | warn`; default `reject`, `warn` only for bring-up on known-good stock.
 
 Honest framing for the paper: secp128r1 gives roughly 64-bit security. The originality
 signature is a **filter against casual clone silicon, not a cryptographic proof of
-authenticity**. The evidence that it works today — publicly sold "magic" NTAG213 tags
+authenticity**. The evidence that it works today — publicly sold "magic" NTAG21x tags
 fail it and report counter `000000` — is empirical, not cryptographic.
 
 ### 6.7 Locking — config-gated, irreversible, off for now
 
 `TAG_LOCK_ENABLED=false` for this build phase. **Critical point that is easy to get
 wrong: the counter and mirror are independent of locking.** Enabling `NFC_CNT_EN` and
-`MIRROR_CONF` is an ordinary write to pages 29h/2Ah, and stays reversible as long as
+`MIRROR_CONF` is an ordinary write to pages E3h/E4h, and stays reversible as long as
 `CFGLCK = 0`. So **MTA works fully during testing with tags that remain rewritable.**
 
 What `TAG_LOCK_ENABLED=true` adds later, in this order:
 
 1. Static lock bytes (page 02h, bytes 2–3) → lock pages 03h–0Fh.
-2. Dynamic lock bytes (page 28h) → lock the remaining written pages, 2-page granularity.
-3. Diversified PWD/PACK (pages 2Bh/2Ch), derived from `TAG_PWD_MASTER` + UID.
-4. `AUTH0 = 29h` and `CFGLCK = 1` in CFG0/CFG1.
+2. Dynamic lock bytes (page E2h) → lock the remaining written pages, **16-page**
+   granularity. NTAG213 used 2-page blocks over 10h–27h; NTAG216 uses 16-page blocks
+   over 10h–E1h, and the lock bits are one-way, so the arithmetic is not portable.
+3. Diversified PWD/PACK (pages E5h/E6h), derived from `TAG_PWD_MASTER` + UID.
+4. `AUTH0 = E3h` and `CFGLCK = 1` in CFG0/CFG1.
 5. Power-cycle, then read once as a phone would, to confirm the mirror is still live.
 
 **Every one of those is irreversible.** Implementation requirements:
@@ -731,8 +763,10 @@ def fast_read(pn532, start: int, end: int) -> bytes:
     return transceive(pn532, [0x3A, start, end], (end - start + 1) * 4)
 ```
 
-**`GET_VERSION` assertion** (attack A12, F9a): a genuine NTAG213 returns vendor `04h`
-and storage size `0Fh`. Assert both before proceeding. Anything else → reject.
+**`GET_VERSION` assertion** (attack A12, F9a): a genuine NTAG216 returns vendor `04h`
+and storage size `13h`. Assert both before proceeding. Anything else → reject.
+(`0Fh` is NTAG213, `11h` is NTAG215 — both are rejected here, because their
+configuration pages sit elsewhere and would be written into user memory.)
 
 **Carry over from `pi_app.py` verbatim:** the page-by-page NDEF write with 3 retries
 per page and a ~50 ms settle delay after each successful write. Writing ~24 pages
@@ -1916,7 +1950,7 @@ Three deployables, one repo. `pi/` ships to the Pi; nothing in it imports from
        UNAVAILABLE → proceed, record originality_status='unverified'
  5. token = secrets.token_bytes(16)                                  → 32 hex chars
  6. url = build_verify_url(PUBLIC_HOST, token.hex())
-    tlv = build_ndef_tlv(url)        ← raises if > 137 bytes
+    tlv = build_ndef_tlv(url)        ← raises if > 252 bytes
  7. Write TLV from page 04h, one page at a time,
     3 retries per page + ~50 ms settle delay after each success      ← carried from v1
  8. FAST_READ the whole NDEF area and BYTE-COMPARE against tlv       → mismatch: retry
@@ -2366,7 +2400,7 @@ is D1–D16; D17–D24 are listed as additions and are included here.
 | A5 | Counter fast-forward | Velocity bound from `enrol_counter` + pack age | §9.7 step 7 |
 | A6 | Genuine-tag counter exhaustion (DoS) | Detected, flagged, incident raised for human triage | §9.7, §10.5 |
 | A7 | Field NDEF rewrite | Static + dynamic lock bytes — **open while `TAG_LOCK_ENABLED=false`** | §6.7 |
-| A8 | Config rewrite to disable the counter | `AUTH0=29h` + `CFGLCK` — **open while locking is off** | §6.5, §6.7 |
+| A8 | Config rewrite to disable the counter | `AUTH0=E3h` + `CFGLCK` — **open while locking is off** | §6.5, §6.7 |
 | A9 | Tag password brute force | 2^32 at ~200/s ≈ 250 days of continuous physical access | §6.5 |
 | A10 | Deliberate `AUTHLIM` bricking | `AUTHLIM=0` chosen precisely to prevent this | §6.5 |
 | A11 | Tag transplant / refill | **Not closed.** Requires tamper-evident packaging | §2 residual risk 1 |
@@ -2824,8 +2858,8 @@ Not blockers for the build, but they change the answer to something:
    constraint the answer is no, and B1 stays weak — but a `.in` domain costs a few
    hundred rupees a year and would also shorten every tag URL. Worth a decision rather
    than a default.
-2. **Test hardware.** Reproducing the magic-tag result needs one genuine NTAG213 and
-   one UID-rewritable "magic" NTAG213. That comparison is a directly citable
+2. **Test hardware.** Reproducing the magic-tag result needs one genuine NTAG216 and
+   one UID-rewritable "magic" NTAG216. That comparison is a directly citable
    experimental result for the paper, not just a test.
 3. **Whether the Worker host is permanent.** It is baked into every tag written. A
    later change invalidates every tag already in the field.
@@ -2834,7 +2868,7 @@ Not blockers for the build, but they change the answer to something:
 
 ---
 
-*This file describes the system to be built (MTA + CDD on NTAG213, envelope-encrypted
+*This file describes the system to be built (MTA + CDD on NTAG216, envelope-encrypted
 records, signed rows, durable enrolment, edge-mediated verification), not the system as
 currently deployed. Build in the order in §18 and run each phase's check before moving
 on — the failure modes here are mostly silent, and silent failures found at Phase 8

@@ -1,4 +1,4 @@
-"""Raw NTAG213 commands over the PN532, plus the hardware-proven NDEF write.
+"""Raw NTAG216 commands over the PN532, plus the hardware-proven NDEF write.
 ARCHITECTURE.md §6.8.
 
 `adafruit_pn532` exposes ntag2xx_read_block / ntag2xx_write_block but not
@@ -12,22 +12,35 @@ import time
 
 from tag_layout import NDEF_START_PAGE
 
-CMD_IN_DATA_EXCHANGE = 0x40
+# InCommunicateThru, NOT InDataExchange (40h). See transceive() for why.
+CMD_IN_COMMUNICATE_THRU = 0x42
 
-# NTAG213 command bytes (NXP datasheet rev 3.2)
+# NTAG21x command bytes (NXP datasheet rev 3.2) -- identical across the family
 CMD_GET_VERSION = 0x60
 CMD_READ_SIG = 0x3C
 CMD_READ_CNT = 0x39
 CMD_FAST_READ = 0x3A
 CMD_PWD_AUTH = 0x1B
 
-# A genuine NTAG213 returns vendor 04h (NXP) and storage size 0Fh. Anything else
+# A genuine NTAG216 returns vendor 04h (NXP) and storage size 13h. Anything else
 # is not the silicon we think it is (attack A12, finding F9a).
+#
+# Storage-size byte, NXP datasheet: 0Fh NTAG213, 11h NTAG215, 13h NTAG216. This
+# build targets NTAG216 ONLY. Do not relax this check to accept a sibling chip:
+# the configuration pages sit at different addresses on each, so an NTAG213
+# would take our config write into the middle of its user memory, corrupt the
+# NDEF record and never enable the mirror -- with no error until the tag fails
+# the live-mirror confirmation.
 NXP_VENDOR_ID = 0x04
-NTAG213_STORAGE_SIZE = 0x0F
+NTAG216_STORAGE_SIZE = 0x13
+
+# NTAG216 user memory is 04h..E1h (888 bytes). On NTAG213 it was 04h..27h.
+# Most bytes one FAST_READ can return in a single PN532 frame. Mirrors
+# tag_layout.PN532_FRAME_BYTES; the two modules do not import each other.
+PN532_FRAME_BYTES = 252
 
 USER_PAGE_FIRST = 0x04
-USER_PAGE_LAST = 0x27
+USER_PAGE_LAST = 0xE1
 
 # Carried over VERBATIM from v1's pi_app.py. Writing ~24 pages back-to-back
 # without pacing causes real "Response frame preamble does not contain 0x00FF!"
@@ -49,14 +62,28 @@ class TagRejected(NtagError):
 # --------------------------------------------------------------- transport ---
 
 def transceive(pn532, payload: list[int], response_length: int) -> bytes:
-    """Send a raw ISO14443A-3 command to the selected tag. `payload` is the NTAG
-    command bytes; target 1 is prepended. Returns the response minus the status
-    byte."""
-    resp = pn532.call_function(CMD_IN_DATA_EXCHANGE,
-                               params=[0x01, *list(payload)],
+    """Send a raw ISO14443A-3 command to the selected tag. Returns the response
+    minus the status byte.
+
+    THIS MUST BE InCommunicateThru (42h), NOT InDataExchange (40h).
+
+    InDataExchange makes the PN532 firmware interpret the payload's first byte
+    as a MIFARE command. NTAG's GET_VERSION is 60h, which is also MIFARE
+    Classic's AUTHENTICATE KEY A — so the reader tries to run an authentication
+    handshake, answers with a frame the driver rejects outright ("Received
+    unexpected command response!"), and the tag never sees the command at all.
+    The failure looks like a broken tag or a wiring fault; it is neither.
+
+    42h passes the bytes through untouched, which is what every command in this
+    module needs. Note it takes NO target number — that byte belongs to 40h
+    only, and sending it here would be transmitted to the tag as data.
+
+    Hardware-confirmed on NTAG216: 40h fails, 42h returns 0004040201001303."""
+    resp = pn532.call_function(CMD_IN_COMMUNICATE_THRU,
+                               params=list(payload),
                                response_length=response_length + 1)
     if resp is None or len(resp) < 1 or resp[0] != 0x00:
-        raise NtagError(f"InDataExchange status {resp[0] if resp else 'none'}")
+        raise NtagError(f"InCommunicateThru status {resp[0] if resp else 'none'}")
     return bytes(resp[1:])
 
 
@@ -66,7 +93,7 @@ def get_version(pn532) -> bytes:
     return transceive(pn532, [CMD_GET_VERSION], 8)
 
 
-def assert_ntag213(pn532) -> bytes:
+def assert_ntag216(pn532) -> bytes:
     """GET_VERSION gate (A12, F9a). Returns the raw 8-byte version on success."""
     version = get_version(pn532)
     if len(version) < 8:
@@ -74,9 +101,9 @@ def assert_ntag213(pn532) -> bytes:
     vendor, storage = version[1], version[6]
     if vendor != NXP_VENDOR_ID:
         raise TagRejected(f"vendor byte {vendor:#04x}, expected {NXP_VENDOR_ID:#04x} (NXP)")
-    if storage != NTAG213_STORAGE_SIZE:
+    if storage != NTAG216_STORAGE_SIZE:
         raise TagRejected(
-            f"storage size {storage:#04x}, expected {NTAG213_STORAGE_SIZE:#04x} (NTAG213)")
+            f"storage size {storage:#04x}, expected {NTAG216_STORAGE_SIZE:#04x} (NTAG216)")
     return version
 
 
@@ -108,7 +135,14 @@ def fast_read(pn532, start: int, end: int) -> bytes:
     """FAST_READ (3Ah) — pages `start`..`end` inclusive, 4 bytes each."""
     if not USER_PAGE_FIRST <= start <= end <= USER_PAGE_LAST:
         raise NtagError(f"FAST_READ range {start:#04x}-{end:#04x} outside user memory")
-    return transceive(pn532, [CMD_FAST_READ, start, end], (end - start + 1) * 4)
+    nbytes = (end - start + 1) * 4
+    if nbytes > PN532_FRAME_BYTES:
+        raise NtagError(
+            f"FAST_READ of {nbytes}B exceeds the PN532's {PN532_FRAME_BYTES}B frame. "
+            f"NTAG216 has 888 bytes of user memory but the reader cannot return "
+            f"them in one go; read in chunks. tag_layout.MAX_NDEF_BYTES is capped "
+            f"to keep every record we write readable back in a single frame.")
+    return transceive(pn532, [CMD_FAST_READ, start, end], nbytes)
 
 
 def pwd_auth(pn532, password: bytes) -> bytes:
@@ -150,7 +184,7 @@ def write_ndef(pn532, tlv: bytes) -> int:
     available = USER_PAGE_LAST - NDEF_START_PAGE + 1
     if pages_needed > available:
         raise NtagError(
-            f"NDEF needs {pages_needed} pages, only {available} available on NTAG213")
+            f"NDEF needs {pages_needed} pages, only {available} available on NTAG216")
     for i in range(pages_needed):
         write_page(pn532, NDEF_START_PAGE + i, tlv[i * 4:(i + 1) * 4])
     return pages_needed

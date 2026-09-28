@@ -1,21 +1,10 @@
 # ATTACK_MATRIX.md — traceability, not a work list
 
 Extracted verbatim from ARCHITECTURE.md §16 so the paper and the repository
-cannot drift apart. Regenerate with:
+cannot drift apart. Regenerate with (this preserves the header above — the
+previous one-liner overwrote the whole file and silently dropped it):
 
-    python -c "import pathlib; s=pathlib.Path('ARCHITECTURE.md').read_text(encoding='utf-8');       open('docs/ATTACK_MATRIX.md','w',encoding='utf-8').write(s[s.index('## 16.'):s.index('## 17.')])"
-
-**How to read it.** "Mechanism" is *where the defence lives*. If you are about to
-add a special case in a route handler for one of these IDs, stop — either the
-mechanism is missing from the design (flag it) or you are patching a symptom.
-
-**Where these are already tested** is listed in
-`backend/tests/attacks/README.md`. The full 86-test suite is Phase 8 (§18); the
-scaffold is in place and several classes are already covered by the unit and
-integration tests that exist today.
-
----
-
+    python -c "import pathlib; a=pathlib.Path('ARCHITECTURE.md').read_text(encoding='utf-8'); f=pathlib.Path('docs/ATTACK_MATRIX.md'); h=f.read_text(encoding='utf-8').split('## 16.')[0]; f.write_text(h + a[a.index('## 16.'):a.index('## 17.')], encoding='utf-8')"
 ## 16. Attack traceability matrix
 
 The brief was explicit: **do not add code addressing each attack one by one.** The
@@ -41,7 +30,7 @@ is D1–D16; D17–D24 are listed as additions and are included here.
 | A5 | Counter fast-forward | Velocity bound from `enrol_counter` + pack age | §9.7 step 7 |
 | A6 | Genuine-tag counter exhaustion (DoS) | Detected, flagged, incident raised for human triage | §9.7, §10.5 |
 | A7 | Field NDEF rewrite | Static + dynamic lock bytes — **open while `TAG_LOCK_ENABLED=false`** | §6.7 |
-| A8 | Config rewrite to disable the counter | `AUTH0=29h` + `CFGLCK` — **open while locking is off** | §6.5, §6.7 |
+| A8 | Config rewrite to disable the counter | `AUTH0=E3h` + `CFGLCK` — **open while locking is off** | §6.5, §6.7 |
 | A9 | Tag password brute force | 2^32 at ~200/s ≈ 250 days of continuous physical access | §6.5 |
 | A10 | Deliberate `AUTHLIM` bricking | `AUTHLIM=0` chosen precisely to prevent this | §6.5 |
 | A11 | Tag transplant / refill | **Not closed.** Requires tamper-evident packaging | §2 residual risk 1 |
@@ -194,3 +183,4 @@ Known-open in this build, by design or by constraint:
 | H1, H5, H6 | Quantum explicitly out of scope |
 
 ---
+

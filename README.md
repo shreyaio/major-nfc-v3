@@ -1,8 +1,7 @@
 # NFC Medicine Authenticity System — v2
 
-An anti-counterfeiting system for pharmaceutical packaging, built on **NTAG213**
-tags that cost a few rupees each and work on **any phone, with no app, on Android
-and iOS alike**.
+An anti-counterfeiting system for pharmaceutical packaging, built on **NTAG216**
+tags that work on **any phone, with no app, on Android and iOS alike**.
 
 - **Design specification:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — the build spec
 - **Threat model:** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
@@ -13,7 +12,7 @@ and iOS alike**.
 
 ## What it claims, and what it does not
 
-> **It does not prevent cloning.** NTAG213 holds no secret and can prove nothing
+> **It does not prevent cloning.** NTAG216 holds no secret and can prove nothing
 > cryptographically. Anyone who reads a genuine tag can write the same data to
 > another tag.
 
@@ -64,7 +63,7 @@ per-check breakdown, and **the binding level actually achieved**.
 
 ```
 backend/      Flask API on Render — app factory, routes/, services/, schema/
-pi/           Raspberry Pi enroller — NTAG213 driver, durable outbox, drainer
+pi/           Raspberry Pi enroller — NTAG216 driver, durable outbox, drainer
 edge/         Cloudflare Worker — rate limiting, negative caching, instant shell
 frontend/     Plain HTML/CSS/vanilla JS — no framework, no build step, no npm
 legacy/       The research-paper cipher, offline only. NOT DEPLOYED, NOT IMPORTED.
@@ -189,7 +188,14 @@ curated.
 
 ## Cost
 
-Zero recurring. Cloudflare Workers + KV, Render web service, Supabase Postgres
+**Tags.** This build targets **NTAG216**. It is several times the price of an
+NTAG213 — tens of rupees per tag rather than a few — and that is a real change to
+the per-pack economics, not a rounding error. NTAG213 would be the cheaper choice
+at volume and the design works identically on it, but every configuration page
+sits at a different address (§6.1), so the two are not drop-in interchangeable.
+The chip in use is asserted at enrolment by `GET_VERSION`, not assumed.
+
+**Infrastructure.** Zero recurring. Cloudflare Workers + KV, Render web service, Supabase Postgres
 and GitHub Actions, all on free tiers. No paid KMS, no Redis, no message queue,
 no blockchain — the transparency log (§14.3) is the answer to that last one, and
 it is far cheaper.
