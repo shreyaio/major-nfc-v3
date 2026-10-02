@@ -80,11 +80,6 @@ def _authenticate() -> tuple[dict, bytes, str, str]:
     signature = request.headers.get("X-Signature", "")
     idempotency_key = request.headers.get("X-Idempotency-Key", "")
 
-    try:
-        uuid.UUID(idempotency_key)
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise BadRequest("X-Idempotency-Key must be a uuid") from exc
-
     # 3. Device.
     device = _device(device_id)
     if device["sig_alg"] != alg:
@@ -100,7 +95,18 @@ def _authenticate() -> tuple[dict, bytes, str, str]:
             raw_body=raw_body, signature_hex=signature, public_key=public_key):
         raise BadSignature("signature verification failed")
 
-    # 5. Two-sided timestamp window. Checked after the signature so a bad clock
+    # 5. Idempotency key format. Checked AFTER the signature for the same reason
+    #    the timestamp is (D1): before the signature gate it was an
+    #    unauthenticated validation oracle, and it answered an unsigned request
+    #    with 400 malformed_request instead of 403 — a caller with no credentials
+    #    at all got a header-format critique rather than a rejection. The key is
+    #    still read before this point because it is part of the signed payload.
+    try:
+        uuid.UUID(idempotency_key)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise BadRequest("X-Idempotency-Key must be a uuid") from exc
+
+    # 6. Two-sided timestamp window. Checked after the signature so a bad clock
     #    cannot be used to probe which device ids exist.
     if not crypto_signing.timestamp_in_window(timestamp, window=cfg.timestamp_window_s):
         raise BadSignature("timestamp outside the allowed window")

@@ -144,8 +144,8 @@ def test_g5_pre_enrolment_harvesting_requires_two_person_open_batch(
         session, base_url, admin_token, evidence):
     """G5 — harvesting identifiers before packaging is bounded by three things:
     a per-batch quota, an open-batch requirement, and two-person authorisation to
-    open a batch. We prove the last: opening a batch without a countersigner is
-    rejected, so one compromised operator cannot open a batch to harvest from."""
+    open a batch. We prove the last: one operator cannot authorise their own
+    batch, so a single compromised operator cannot open a batch to harvest from."""
     r = session.post(
         f"{base_url}/api/v2/admin/batches",
         headers={"Authorization": f"Bearer {admin_token}",
@@ -153,7 +153,14 @@ def test_g5_pre_enrolment_harvesting_requires_two_person_open_batch(
         json={"batch_ref": f"G5-{secrets.token_hex(3).upper()}",
               "product_name": "No Countersigner 100mg",
               "mfg_date": date.today().isoformat(), "shelf_life_days": 365,
-              "quota": 10, "opened_by": "solo-operator"},  # countersigned_by omitted
+              "quota": 10, "opened_by": "solo-operator",
+              # The attack is ONE operator opening a batch alone, so they put
+              # their own name in both fields. Omitting countersigned_by instead
+              # only exercises required-field validation (malformed_request) and
+              # never reaches the two-person rule, which is the control under
+              # test: CountersignatureRequired fires when the two names MATCH
+              # (services/batches.py::open_batch).
+              "countersigned_by": "solo-operator"},
         timeout=30)
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "countersignature_required"

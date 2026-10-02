@@ -415,21 +415,34 @@ def test_d24_connection_pool_is_not_exhausted_by_sequential_load(make_tag, enrol
                                                                  verify, evidence):
     """D24 — the pooled context manager always returns its connection, even on the
     error path. A burst of requests that each open and use a connection must not
-    leak the pool dry: every one still succeeds."""
+    leak the pool dry.
+
+    A leaked pool shows up as 5xx (service_unavailable once no connection can be
+    acquired), NEVER as 429. So the assertion is on the absence of 5xx, not on
+    every request returning 200: through the edge, 40 verifies of ONE tag crosses
+    the per-tag KV bound (LIMITS.tag = 30/hour, edge/src/ratelimit.js) and the
+    tail is legitimately rate-limited. Demanding 200 forty times made this test
+    pass only when pointed at the origin, and it measured the limiter rather than
+    the pool."""
     payload, uid, token = make_tag(enrol_counter=1)
     assert enrol(payload).status_code == 201
 
-    ok = 0
+    served, limited = 0, 0
     counter = 2
     for _ in range(40):
         counter += 1
         r = verify(uid, counter, token)
-        assert r.status_code == 200
-        ok += 1
-    assert ok == 40
+        assert r.status_code < 500, f"pool leak: {r.status_code} {r.text}"
+        assert r.status_code in (200, 429), r.status_code
+        if r.status_code == 200:
+            served += 1
+        else:
+            limited += 1
+    assert served + limited == 40
+    assert served > 0, "every request was rate-limited; the pool was not exercised"
 
     evidence("D24", outcome="blocked", expected="no pool leak under a burst",
-             detail={"requests": ok})
+             detail={"requests": 40, "served": served, "rate_limited": limited})
 
 
 # =============================================================== INJECTION =====
@@ -631,8 +644,10 @@ def test_d30_payload_in_the_idempotency_key_is_rejected(session, base_url,
                                                         evidence):
     """D30 — v1 put this payload in the write body's `nonce` field. There is no
     nonce field now; the per-request uniqueness token is the `X-Idempotency-Key`
-    header, which must parse as a UUID before the signature is checked (§9.5).
-    A payload there is a 400, not a stored string.
+    header, which must parse as a UUID (§9.5 step 5). Because the key is inside
+    the signed payload, substituting a payload for it breaks the signature first
+    — so this is a 403 bad_signature, or a 400 from the uuid check if the caller
+    signed the payload itself. Either way it is never a stored string.
     """
     payload, _, _ = make_tag()
     raw = _raw(payload)

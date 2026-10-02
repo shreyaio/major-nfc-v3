@@ -23,8 +23,14 @@ export function canonicaliseVerify(url) {
   // B8 — parameter pollution. A front layer that takes the first value and a
   // back layer that takes the last is the whole attack; rejecting duplicates
   // outright removes the disagreement rather than picking a side.
+  // A MISSING parameter is not a duplicate one (B6). Reporting both as
+  // 'duplicate_parameter' made the code actively misleading in logs, and the
+  // origin calls a missing parameter 'malformed_parameters' (mirror.py
+  // _canonical), so the two layers disagreed on the label for the same reject.
   for (const k of ['m', 't']) {
-    if (p.getAll(k).length !== 1) throw new BadRequest('duplicate_parameter');
+    const n = p.getAll(k).length;
+    if (n === 0) throw new BadRequest('malformed_parameters');
+    if (n > 1) throw new BadRequest('duplicate_parameter');
   }
 
   const rawM = p.get('m');

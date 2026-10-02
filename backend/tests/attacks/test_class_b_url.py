@@ -18,11 +18,25 @@ import pytest
 pytestmark = pytest.mark.integration
 
 TOKEN = "A" * 32
-GOOD_M = "04A1B2C3D4E5F6X00001A7"
+# 14 hex + X + 6 hex. This was "...X00001A7" (7 digits after X), which never
+# matched the pattern, so B8 would have passed even with the duplicate check
+# removed — the pattern would have rejected it anyway.
+GOOD_M = "04A1B2C3D4E5F6X00001A"
 
 
 def _verify_raw(session, base_url, query: str):
     return session.get(f"{base_url}/api/v2/verify?{query}", timeout=30)
+
+
+# The edge and the origin both reject these, which is the B9 defence, but they
+# label the reject differently: edge/canonicalise.js returns a specific code per
+# cause, while backend/mirror.py::_canonical returns one coarse
+# `malformed_parameters` for every cause. TEST_BASE_URL may legitimately be
+# either layer, so the assertions accept either label and the evidence record
+# carries the one actually returned. Narrowing these to a single code made the
+# result a property of which URL the suite was pointed at.
+OVERSIZE_CODES = frozenset({"parameter_too_long", "malformed_parameters"})
+DUPLICATE_CODES = frozenset({"duplicate_parameter", "malformed_parameters"})
 
 
 # ------------------------------------------------------------- known-open ------
@@ -89,10 +103,11 @@ def test_b4_oversized_parameter_is_capped_before_the_regex(session, base_url,
     r = session.get(f"{base_url}/api/v2/verify",
                     params={"m": "0" * 5000, "t": TOKEN}, timeout=30)
     assert r.status_code == 400
-    assert r.json()["error"]["code"] == "malformed_parameters"
+    code = r.json()["error"]["code"]
+    assert code in OVERSIZE_CODES, code
 
-    evidence("B4", outcome="blocked", expected="400 malformed_parameters",
-             detail={"sent_len": 5000})
+    evidence("B4", outcome="blocked", expected="400, capped before the regex",
+             detail={"sent_len": 5000, "code": code})
 
 
 def test_b5_unicode_and_mixed_case_do_not_bypass_the_pattern(session, base_url,
@@ -136,9 +151,14 @@ def test_b6_missing_token_fails_closed(session, base_url, evidence):
     outside of every chip and cannot be a credential."""
     r = _verify_raw(session, base_url, f"m={GOOD_M}")
     assert r.status_code == 400
-    assert r.json()["error"]["code"] == "malformed_parameters"
+    # Deliberately strict: a MISSING parameter is not a duplicate one. The edge
+    # used to report this as `duplicate_parameter`, which disagreed with the
+    # origin and was misleading in logs; this assertion is what holds that fix.
+    code = r.json()["error"]["code"]
+    assert code == "malformed_parameters", code
 
-    evidence("B6", outcome="blocked", expected="400, no UID-only fallback")
+    evidence("B6", outcome="blocked", expected="400, no UID-only fallback",
+             detail={"code": code})
 
 
 def test_b7_placeholder_passthrough_is_mirror_disabled(verify, evidence):
@@ -157,13 +177,17 @@ def test_b8_parameter_pollution_is_rejected(session, base_url, evidence):
     """B8 — duplicate parameters are rejected via getlist rather than silently
     resolved. This is the differential a front layer taking the last value and an
     origin taking the first would otherwise open up."""
+    codes = []
     for dup in (f"m={GOOD_M}&m=04FFFFFFFFFFFFX000002&t={TOKEN}",
                 f"m={GOOD_M}&t={TOKEN}&t={'B' * 32}"):
         r = _verify_raw(session, base_url, dup)
         assert r.status_code == 400, dup
-        assert r.json()["error"]["code"] == "malformed_parameters", dup
+        code = r.json()["error"]["code"]
+        assert code in DUPLICATE_CODES, (dup, code)
+        codes.append(code)
 
-    evidence("B8", outcome="blocked", expected="400 malformed_parameters")
+    evidence("B8", outcome="blocked", expected="400, duplicates rejected",
+             detail={"codes": codes})
 
 
 def test_b9_fragment_and_query_smuggling_does_not_bypass_the_origin(
