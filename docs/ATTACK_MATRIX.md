@@ -4,8 +4,7 @@ Extracted verbatim from ARCHITECTURE.md §16 so the paper and the repository
 cannot drift apart. Regenerate with (this preserves the header above — the
 previous one-liner overwrote the whole file and silently dropped it):
 
-    python -c "import pathlib; a=pathlib.Path('ARCHITECTURE.md').read_text(encoding='utf-8'); f=pathlib.Path('docs/ATTACK_MATRIX.md'); h=f.read_text(encoding='utf-8').split('## 16.')[0]; f.write_text(h + a[a.index('## 16.'):a.index('## 17.')], encoding='utf-8')"
-## 16. Attack traceability matrix
+    python -c "import pathlib; a=pathlib.Path('ARCHITECTURE.md').read_text(encoding='utf-8'); f=pathlib.Path('docs/ATTACK_MATRIX.md'); h=f.read_text(encoding='utf-8').split('## 16. Attack traceability matrix
 
 The brief was explicit: **do not add code addressing each attack one by one.** The
 security must already be in the system. This section exists so that when the attack
@@ -18,6 +17,15 @@ missing from the design (flag it) or you are patching a symptom.
 
 Counts follow the source design document: 86 attacks across classes A–H, where class D
 is D1–D16; D17–D24 are listed as additions and are included here.
+
+**D25–D32 and E12–E13 (96 total) are a later addition and are not from the source
+document.** They are the SQL-injection, brute-force-flood and birthday-collision cases
+from the v1 seven-category attack suite, which was deleted in 7e06ce2 when this matrix
+replaced it. The v1 suite had covered them and this one did not, so the re-run would
+have regressed against the published v1 results. They are re-expressed against the v2
+routes rather than restored verbatim — the surfaces v1 attacked (a `nonce` body field,
+a UID-only verify lookup) no longer exist. The same rule applies to them as to
+everything above: no route handler gained a special case for any of them.
 
 ### 16.1 Class A — Tag and physical layer
 
@@ -96,6 +104,14 @@ is D1–D16; D17–D24 are listed as additions and are included here.
 | D22 | Timing oracle on registration | Response-time floor | §9.8 |
 | D23 | Error-message information leak | Error envelope; details only to logs | §15.2 |
 | D24 | Connection-pool exhaustion | Pooled context manager that always returns the connection | §9.3 |
+| D25 | SQLi — tautology in verify | `m`/`t` must match the strict pattern before any lookup | §9.6 |
+| D26 | SQLi — UNION extraction in verify | Same pattern gate; edge WAF in front of it | §9.6, §11.1 |
+| D27 | SQLi — `DROP TABLE` payload | Same gate; all SQL is parameterised, so nothing is interpolated | §9.6, §8 |
+| D28 | SQLi — time-based blind `pg_sleep` | Same gate; measured against the D22 time floor, not against zero | §9.6, §9.8 |
+| D29 | SQLi — admin `?status=` filter | Bound parameter (`WHERE status = %s`) — reaches the app and matches nothing | §9.4 |
+| D30 | SQLi — `X-Idempotency-Key` header | Must parse as a UUID before the signature check | §9.5 step 2 |
+| D31 | Brute force — write flood | Signature gate rejects each; edge limiter caps the rate | §7.7, §11.3 |
+| D32 | Brute force — verify enumeration flood | One response shape (`unknown`), no 404, plus the edge limiter | §9.8, §11.3 |
 
 ### 16.5 Class E — Cryptographic layer
 
@@ -112,6 +128,8 @@ is D1–D16; D17–D24 are listed as additions and are included here.
 | E9 | HKDF info collision | Fixed domain-separated `info` strings, length-prefixed | §7.3 |
 | E10 | Master-secret compromise | **Partial.** Envelope wrapping + key separation. Full host compromise still yields it | §7.6, §2 residual risk 4 |
 | E11 | Signature malleability | Ed25519 is not malleable | §7.7 |
+| E12 | Birthday bound — is the formula right? | Validated empirically on a 16-bit space before being extrapolated | §7.5 |
+| E13 | Birthday bound — the deployed spaces | 122-bit uuid4 key, 128-bit binding token, 256-bit `tag_index` | §7.3, §7.5 |
 
 ### 16.6 Class F — Infrastructure and supply chain
 

@@ -56,7 +56,7 @@ order you encounter them; follow the build order in §18.
    from outside: NXP's originality-signature public key (§6.6) and every secret in
    `.env` (§21). If either is missing at runtime, the affected check must degrade to
    an explicit, logged, *visible* "unverified" state — never to a silent pass.
-2. **Do not write per-attack patches.** §16 lists 86 attacks. Each maps to a
+2. **Do not write per-attack patches.** §16 lists 96 attacks. Each maps to a
    *mechanism* that already exists in the design. If an attack in §16 has no
    mechanism next to it, that is a bug in this document — flag it, do not invent a
    one-off fix in a route handler.
@@ -146,7 +146,7 @@ worker, consumer and admin frontend — plus ops automation and a test scaffold.
 **Explicit non-goals (do not build these):**
 
 - Post-quantum signatures (ML-DSA/SLH-DSA). Version fields are reserved; no code.
-- Per-attack test files for the 86 attacks. §16 is a traceability matrix, not a work
+- Per-attack test files for the 96 attacks. §16 is a traceability matrix, not a work
   list. The test *scaffold* in §17 is in scope; the individual attack tests come later.
 - Blockchain / distributed ledger. The transparency log (§14.3) is the answer to that
   question and is far cheaper.
@@ -2389,6 +2389,15 @@ missing from the design (flag it) or you are patching a symptom.
 Counts follow the source design document: 86 attacks across classes A–H, where class D
 is D1–D16; D17–D24 are listed as additions and are included here.
 
+**D25–D32 and E12–E13 (96 total) are a later addition and are not from the source
+document.** They are the SQL-injection, brute-force-flood and birthday-collision cases
+from the v1 seven-category attack suite, which was deleted in 7e06ce2 when this matrix
+replaced it. The v1 suite had covered them and this one did not, so the re-run would
+have regressed against the published v1 results. They are re-expressed against the v2
+routes rather than restored verbatim — the surfaces v1 attacked (a `nonce` body field,
+a UID-only verify lookup) no longer exist. The same rule applies to them as to
+everything above: no route handler gained a special case for any of them.
+
 ### 16.1 Class A — Tag and physical layer
 
 | ID | Attack | Mechanism | Where |
@@ -2466,6 +2475,14 @@ is D1–D16; D17–D24 are listed as additions and are included here.
 | D22 | Timing oracle on registration | Response-time floor | §9.8 |
 | D23 | Error-message information leak | Error envelope; details only to logs | §15.2 |
 | D24 | Connection-pool exhaustion | Pooled context manager that always returns the connection | §9.3 |
+| D25 | SQLi — tautology in verify | `m`/`t` must match the strict pattern before any lookup | §9.6 |
+| D26 | SQLi — UNION extraction in verify | Same pattern gate; edge WAF in front of it | §9.6, §11.1 |
+| D27 | SQLi — `DROP TABLE` payload | Same gate; all SQL is parameterised, so nothing is interpolated | §9.6, §8 |
+| D28 | SQLi — time-based blind `pg_sleep` | Same gate; measured against the D22 time floor, not against zero | §9.6, §9.8 |
+| D29 | SQLi — admin `?status=` filter | Bound parameter (`WHERE status = %s`) — reaches the app and matches nothing | §9.4 |
+| D30 | SQLi — `X-Idempotency-Key` header | Must parse as a UUID before the signature check | §9.5 step 2 |
+| D31 | Brute force — write flood | Signature gate rejects each; edge limiter caps the rate | §7.7, §11.3 |
+| D32 | Brute force — verify enumeration flood | One response shape (`unknown`), no 404, plus the edge limiter | §9.8, §11.3 |
 
 ### 16.5 Class E — Cryptographic layer
 
@@ -2482,6 +2499,8 @@ is D1–D16; D17–D24 are listed as additions and are included here.
 | E9 | HKDF info collision | Fixed domain-separated `info` strings, length-prefixed | §7.3 |
 | E10 | Master-secret compromise | **Partial.** Envelope wrapping + key separation. Full host compromise still yields it | §7.6, §2 residual risk 4 |
 | E11 | Signature malleability | Ed25519 is not malleable | §7.7 |
+| E12 | Birthday bound — is the formula right? | Validated empirically on a 16-bit space before being extrapolated | §7.5 |
+| E13 | Birthday bound — the deployed spaces | 122-bit uuid4 key, 128-bit binding token, 256-bit `tag_index` | §7.3, §7.5 |
 
 ### 16.6 Class F — Infrastructure and supply chain
 
@@ -2556,8 +2575,9 @@ Known-open in this build, by design or by constraint:
 
 ## 17. Test scaffold
 
-Per the brief, the 86 attack tests come later. What is in scope now is the scaffold
-they will slot into, plus the tests that prove the system is internally consistent.
+Per the brief, the 96 attack tests came later than the scaffold. Both now exist: the
+scaffold below, the tests that prove the system is internally consistent, and the
+attack suite itself in `tests/attacks/` (one file per class, one function per §16 ID).
 
 ### 17.1 Layout
 
@@ -2585,10 +2605,31 @@ backend/tests/
 │   ├── test_recall.py
 │   ├── test_audit_chain.py
 │   └── test_dead_routes.py        ← asserts v1 routes are 404
-└── attacks/
-    ├── README.md          ← maps §16 IDs to files; most are stubs for now
-    └── conftest.py
+├── attacks/
+│   ├── README.md          ← maps §16 IDs to files
+│   ├── conftest.py        ← evidence recorder; sorts `flood` tests last
+│   ├── test_class_a_tag.py      A1–A14
+│   ├── test_class_b_url.py      B1–B10
+│   ├── test_class_c_client.py   C1–C10
+│   ├── test_class_d_api.py      D1–D32  (D25–D30 injection, D31–D32 floods)
+│   ├── test_class_e_crypto.py   E1–E13  (E12–E13 birthday bounds)
+│   ├── test_class_f_infra.py    F1a–F10a
+│   ├── test_class_g_business.py G1–G9
+│   └── test_class_h_quantum.py  H1–H6
+├── evidence/               attacks-<timestamp>.jsonl, one row per attack ID
+├── report.py               ← cross-references evidence against audit_log
+└── generate_attack_analytics.py  ← the five quantitative analytics
 ```
+
+**The two scripts at the bottom are what turn a run into results.** `report.py`
+checks the server independently recorded what the suite claims happened (it needs
+`DATABASE_URL`; the audit log has no HTTP surface on purpose).
+`generate_attack_analytics.py` computes the malicious success rate, the aggregate
+status distribution, the per-class breakdown, the injection defense-layer split and
+the birthday validation, writing `analytics_summary.json` plus a Markdown summary.
+Evidence logging is append-only, so clear `evidence/` before a run that will be
+cited — both scripts warn when an attack ID appears in more than one file, but a
+warning is not a substitute for a clean directory.
 
 ### 17.2 The tests that must exist before Phase 5
 

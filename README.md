@@ -176,13 +176,28 @@ combinations** of its inputs and asserts a single property:
 That is the strongest guarantee in the codebase, and it is cheap precisely because
 the decision logic has no database and no Flask inside it.
 
-The 86-attack suite is Phase 8 and is **not written yet** — deliberately.
-`docs/ATTACK_MATRIX.md` maps every attack to the mechanism that already defends
-against it; `backend/tests/attacks/README.md` records which are already covered by
-existing tests, and which are **known-open**. Do not present a v2 column as
-measured results until the tests have actually run: an unexpected failure you
-found and reported is worth more to a reviewer than a clean sweep they suspect was
-curated.
+The 96-attack suite lives in `backend/tests/attacks/`, one file per class and one
+function per §16 ID. `docs/ATTACK_MATRIX.md` maps every attack to the mechanism
+that already defends against it — it is a traceability matrix, not a work list, and
+no route handler carries a per-attack special case.
+
+Classes E, F and H are properties of the primitives and run offline; A, B, C, D and
+G need a live server and skip without `TEST_BASE_URL`. Every test appends a JSONL
+evidence row, and two scripts turn a run into results:
+
+```
+python tests/report.py                                        # audit cross-reference
+python tests/generate_attack_analytics.py --evidence-dir tests/evidence
+```
+
+Together they give the malicious success rate, the aggregate HTTP status
+distribution, the per-class breakdown, the injection defense-layer split (edge vs.
+parameterised query) and the birthday-bound validation — figures rather than prose.
+
+`backend/tests/attacks/README.md` records which attacks are already covered by
+existing tests and which are **known-open**. Do not present a v2 column as measured
+results until the tests have actually run: an unexpected failure you found and
+reported is worth more to a reviewer than a clean sweep they suspect was curated.
 
 ---
 

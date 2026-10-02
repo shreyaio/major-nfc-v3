@@ -1,18 +1,118 @@
-# tests/attacks/ — the 86-attack suite
+# tests/attacks/ — the 96-attack suite
 
-**This is a scaffold. The attack tests themselves come later** — see
-ARCHITECTURE.md §2 ("explicit non-goals") and §17.3.
+**Written (Phase 8).** One file per class, one function per §16 ID, each emitting
+a JSONL evidence record. See ARCHITECTURE.md §16 and §17.3.
 
-## Why there is nothing here yet
+## What the suite does NOT do
 
-The brief was explicit: **do not add code addressing each attack one by one.**
-The security has to already be in the system. §16 is a *traceability matrix*, not
-a work list: every one of the 86 attacks maps to a **mechanism that already
-exists** in the design.
+The brief was explicit: **do not add code addressing each attack one by one** in
+the *product*. The security has to already be in the system — §16 is a
+*traceability matrix*, not a work list. These tests **exercise** the mechanisms
+that already exist; none of them adds a per-attack special case to a route
+handler. If you are about to do that, stop: either the mechanism is missing from
+the design (flag it) or you are patching a symptom.
 
-If you are about to add a special case in a route handler for one of these IDs,
-stop. Either the mechanism is missing from the design — flag it — or you are
-patching a symptom.
+## Files
+
+| Class | File | §16 IDs |
+|---|---|---|
+| A — tag / physical | `test_class_a_tag.py` | A1–A14 |
+| B — NDEF / URL | `test_class_b_url.py` | B1–B10 |
+| C — client / browser | `test_class_c_client.py` | C1–C10 |
+| D — API / protocol | `test_class_d_api.py` | D1–D32 |
+| E — cryptographic | `test_class_e_crypto.py` | E1–E13 |
+| F — infra / supply chain | `test_class_f_infra.py` | F1a–F10a |
+| G — business logic / abuse | `test_class_g_business.py` | G1–G9 |
+| H — forward-looking / quantum | `test_class_h_quantum.py` | H1–H6 |
+
+## Carried back from the v1 suite (D25–D32, E12–E13)
+
+v1 had a seven-category suite (replay, clone, device impersonation, brute force,
+SQL injection, MITM, birthday) that was deleted in 7e06ce2 when this matrix
+replaced it. Sixteen of its twenty-two cases already map onto A–H IDs. Six did
+not, and were silently lost in the move:
+
+| v1 category | Now | Note |
+|---|---|---|
+| SQL injection ×6 | D25–D30 | retargeted: no `nonce` field, no UID-only lookup |
+| Brute force ×2 | D31–D32 | D21 records the posture; D32 is the measurement |
+| Birthday validation ×2 | E12–E13 | E4 only asserts the v1 nonce scheme is gone |
+
+Three v1 expectations do **not** carry over, and the tests say so rather than
+quietly asserting the old value:
+
+- A verbatim replay returns the **stored response**, not `409` — idempotency
+  replaced the nonce-uniqueness constraint (D5, §9.5 step 6).
+- There is no 64-bit write nonce to extrapolate a collision bound to. The live
+  spaces are a 122-bit uuid4 idempotency key, a 128-bit binding token and a
+  256-bit `tag_index`. E13 reports those and records the retired 64-bit figure
+  beside them, so the v1 number in the paper stays traceable.
+- An injection payload against verify is a `400 malformed_parameters` from the
+  strict `m`/`t` pattern, not an `unknown` verdict. Stronger, but different.
+
+## How to run
+
+Classes E, F and H are properties of the primitives, the committed artifacts and
+the schema, so they run with the unit tests — no server needed:
+
+```
+pytest tests/attacks/test_class_e_crypto.py tests/attacks/test_class_f_infra.py \
+       tests/attacks/test_class_h_quantum.py
+```
+
+Classes A, B, C, D and G drive a **live server** and skip unless `TEST_BASE_URL`
+(and, for enrol/verify, `TEST_ADMIN_TOKEN`, `TEST_FIELD_RECIPIENT_PUB`, a
+registered `TEST_DEVICE_*`) are set — see `docs/OPERATOR_RUNBOOK.md`. Run them
+against a **pinned worker count** (§17.3):
+
+```
+TEST_BASE_URL=... TEST_WORKER_COUNT=2 pytest tests/attacks/
+```
+
+Each test appends to `tests/evidence/attacks-<timestamp>.jsonl` with
+`{attack_id, outcome, expected, detail, worker_count, ...}` — the citable record
+behind the §16.9 scoreboard. `outcome` is one of `blocked | detected | open |
+inconclusive`.
+
+### The floods must run last
+
+D31 and D32 send 40 and 30 requests. They exhaust the rate limiter, so anything
+after them sees spurious 429s. v1 encoded this in a filename
+(`test_zz_bruteforce.py`) so alphabetical collection would put it last; that does
+not survive one-file-per-class, because classes E–H collect after D and class G
+drives the live server.
+
+They therefore carry `@pytest.mark.flood`, and `conftest.py` sorts flood-marked
+items to the end of the whole session. Run the suite normally — the ordering is
+enforced, not a convention. To skip them while iterating:
+
+```
+pytest tests/attacks/ -m "not flood"
+```
+
+### Turning a run into results
+
+```
+python tests/report.py                                        # audit cross-reference
+python tests/generate_attack_analytics.py --evidence-dir tests/evidence
+```
+
+`report.py` writes `evidence/report.md` and needs `DATABASE_URL` — the audit log
+has no HTTP surface by design, so the cross-reference needs a direct connection.
+Without it the script still runs and records the gap.
+`generate_attack_analytics.py` writes `evidence/analytics_summary.json` and prints
+a Markdown summary: malicious success rate, aggregate status distribution,
+per-class breakdown, injection defense-layer split, birthday validation.
+
+**Clear `evidence/` before a run you intend to cite.** Logging is append-only;
+both scripts warn when an attack ID appears in more than one file, but the figures
+are only clean if the directory is.
+
+## Honesty rule (§16.9)
+
+The known-open items do **not** get a green test. They record `outcome="open"`
+and skip with the reason, so a reviewer sees them as open rather than as a curated
+clean sweep.
 
 ## Rules for when they are written (§17.3)
 

@@ -19,6 +19,24 @@ EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
 pytestmark = pytest.mark.integration
 
 
+def pytest_collection_modifyitems(items):
+    """Push every `flood`-marked test to the very end of the run.
+
+    v1 encoded this as a filename (`test_zz_bruteforce.py`) so alphabetical
+    collection would put it last. That trick does not survive the move to one
+    file per class: D31/D32 sit at the bottom of `test_class_d_api.py`, but
+    classes E, F, G and H are collected after it — and G drives the live server.
+    A flood that exhausts the limiter before G runs produces spurious 429s and
+    an unreadable result, which is exactly the failure the `zz` prefix existed
+    to prevent.
+
+    Reordering here makes the constraint explicit rather than a property of a
+    filename someone could rename. The relative order of everything else is
+    untouched.
+    """
+    items.sort(key=lambda item: 1 if item.get_closest_marker("flood") else 0)
+
+
 @pytest.fixture(scope="session")
 def evidence():
     """Append-only JSONL evidence records, one per attack test.
