@@ -65,5 +65,19 @@ export function methodAllowed(pathname, method) {
   if (pathname === '/c') return method === 'GET' || method === 'HEAD';
   if (pathname === '/api/v2/verify') return method === 'GET' || method === 'HEAD';
   if (pathname === '/api/v2/report') return method === 'POST' || method === 'GET';
-  return true; // everything else is proxied and gated by the origin
+
+  // The write endpoints are POST-only and must be stated HERE, because the
+  // origin cannot answer 405 for them: backend/app.py builds Flask with
+  // static_url_path="", which registers a catch-all `/<path:filename>` GET
+  // rule. Werkzeug prefers the rule whose METHOD matches, so a GET on
+  // /api/v2/enrol is served by the static handler and 404s instead of 405 —
+  // the method gate is shadowed, and falling through to `true` here meant the
+  // allow-list was enforced at neither layer (D17).
+  if (pathname === '/api/v2/enrol' || pathname === '/api/v2/reenrol') {
+    return method === 'POST';
+  }
+
+  // Admin is deliberately left to the origin: its methods vary per path and it
+  // is scope-gated there, so duplicating that table here would only drift.
+  return true;
 }
