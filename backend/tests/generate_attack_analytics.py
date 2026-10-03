@@ -61,6 +61,28 @@ CLASS_NAMES = {
     "H": "Forward-looking and quantum",
 }
 
+# The §16 matrix, one entry per attack id (tests/attacks/README.md). Used only
+# to report which ids produced no evidence row; it is not a pass/fail gate.
+EXPECTED_IDS = frozenset(
+    [f"A{n}" for n in range(1, 15)]        # A1-A14
+    + [f"B{n}" for n in range(1, 11)]      # B1-B10
+    + [f"C{n}" for n in range(1, 11)]      # C1-C10
+    + [f"D{n}" for n in range(1, 33)]      # D1-D32
+    + [f"E{n}" for n in range(1, 14)]      # E1-E13
+    + [f"F{n}a" for n in range(1, 11)]     # F1a-F10a
+    + ["F2a-pins"]                         # supporting row, its own id
+    + [f"G{n}" for n in range(1, 10)]      # G1-G9
+    + [f"H{n}" for n in range(1, 7)]       # H1-H6
+)
+
+
+def _id_sort_key(attack_id: str):
+    """Sort A2 before A10 — plain string order puts A10 first."""
+    head = attack_id[0]
+    digits = "".join(c for c in attack_id[1:] if c.isdigit())
+    return (head, int(digits) if digits else 0, attack_id)
+
+
 INJECTION_IDS = {"D25", "D26", "D27", "D28", "D29", "D30"}
 FLOOD_IDS = {"D31", "D32"}
 
@@ -98,6 +120,13 @@ def load_rows(evidence_dir: Path) -> tuple[list[dict], dict]:
     seen = Counter(r["attack_id"] for r in rows)
     duplicated = sorted(aid for aid, n in seen.items() if n > 1)
 
+    # A test that fails BEFORE its evidence() call writes no row at all, so the
+    # id vanishes from the denominator and "0 of N attacks succeeded" silently
+    # excludes it. §16.9 requires a known-open to stay visible rather than be
+    # curated away; an attack that did not report is the same problem wearing a
+    # different hat. Compare against the §16 matrix and name the absent ones.
+    missing = sorted(EXPECTED_IDS - set(seen), key=_id_sort_key)
+
     provenance = {
         "evidence_dir": str(evidence_dir),
         "files": [p.name for p in files],
@@ -106,6 +135,9 @@ def load_rows(evidence_dir: Path) -> tuple[list[dict], dict]:
         "legacy_v1_rows_skipped": legacy,
         "malformed_lines_skipped": malformed,
         "duplicate_attack_ids": duplicated,
+        "missing_attack_ids": missing,
+        "expected_id_count": len(EXPECTED_IDS),
+        "recorded_id_count": len(set(seen)),
         "targets": sorted({r.get("target", "") for r in rows if r.get("target")}),
         "worker_counts": sorted({str(r.get("worker_count", "unknown"))
                                  for r in rows}),
@@ -299,6 +331,15 @@ def render_markdown(summary: dict) -> str:
             f"`{', '.join(prov['duplicate_attack_ids'])}`. Evidence logging is "
             f"append-only; clear the directory and re-run, or the figures below "
             f"mix two runs.")
+    if prov.get("missing_attack_ids"):
+        add("")
+        add(f"> **Warning — incomplete coverage.** "
+            f"{prov['recorded_id_count']} of {prov['expected_id_count']} §16 "
+            f"attack ids produced an evidence row. No row was written for: "
+            f"`{', '.join(prov['missing_attack_ids'])}`. A test that fails "
+            f"before its `evidence()` call records nothing, so these are "
+            f"EXCLUDED from every figure below, the success rate included. "
+            f"Resolve them and re-run before citing these numbers.")
     if prov["legacy_v1_rows_skipped"]:
         add("")
         add(f"> {prov['legacy_v1_rows_skipped']} row(s) in the retired v1 format "

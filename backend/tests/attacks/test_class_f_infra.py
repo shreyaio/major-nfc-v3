@@ -68,7 +68,11 @@ def test_f2a_requirements_are_exact_pins_not_ranges(evidence):
             ranges.append(line)
     assert not ranges, f"non-exact version specifiers found: {ranges}"
 
-    evidence("F2a", outcome="blocked", expected="exact == pins only",
+    # Its OWN id: two rows for "F2a" in a single clean run inflated class F to
+    # 11 attacks against 10 ids (F1a-F10a) and tripped the analytics'
+    # stale-evidence warning, which told the reader to clear the directory and
+    # re-run — advice that could never fix it.
+    evidence("F2a-pins", outcome="blocked", expected="exact == pins only",
              detail={"loose_specifiers": ranges})
 
 
