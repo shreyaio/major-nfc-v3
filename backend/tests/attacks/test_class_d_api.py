@@ -291,11 +291,22 @@ def test_d16_legacy_key_endpoint_is_deleted(session, base_url, evidence):
 # ============================================================ TRANSPORT GATES ==
 
 def test_d17_http_method_confusion_is_rejected(session, base_url, evidence):
-    """D17 — an explicit method allow-list. GET on the enrol route is 405."""
-    r = session.get(f"{base_url}/api/v2/enrol", timeout=30)
-    assert r.status_code == 405
+    """D17 — an explicit method allow-list. GET on the enrol route never reaches
+    the handler.
 
-    evidence("D17", outcome="blocked", expected="405 on GET /enrol")
+    The two layers answer differently and both are correct. The edge states the
+    allow-list and returns 405. The ORIGIN cannot: app.py builds Flask with
+    static_url_path="", so a catch-all `/<path:filename>` GET rule exists and
+    Werkzeug prefers it over the POST-only enrol rule, giving 404 from the static
+    handler. Asserting 405 alone made this a test of which URL the suite was
+    pointed at; 404 is in fact the quieter answer, since it does not confirm the
+    route exists."""
+    r = session.get(f"{base_url}/api/v2/enrol", timeout=30)
+    assert r.status_code in (405, 404), r.status_code
+    layer = "edge" if r.status_code == 405 else "origin_static_shadow"
+
+    evidence("D17", outcome="blocked", expected="GET /enrol never reaches the handler",
+             detail={"status": r.status_code, "answered_by": layer})
 
 
 def test_d18_content_type_confusion_is_415(session, base_url, make_tag,
