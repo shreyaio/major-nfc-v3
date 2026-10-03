@@ -17,15 +17,21 @@ THE ENROLMENT SEQUENCE, and why each step is where it is:
        UNAVAILABLE -> proceed, record originality_status='unverified'
   5. token = 16 random bytes -> 32 hex chars.
   6. Build the URL and the NDEF TLV (raises if over tag_layout.MAX_NDEF_BYTES).
-  7. Write the TLV from page 04h, one page at a time, 3 retries + ~50 ms settle.
-  8. FAST_READ and BYTE-COMPARE. Mismatch: retry once, then DISCARD THE TAG.
+  7. Write the TLV from page 04h, one page at a time, 3 retries + ~50 ms settle,
+     with the PN532's status byte CHECKED on every page and the I2C frame stream
+     resynced before each retry (ntag.resync).
+  8. FAST_READ in chunks and BYTE-COMPARE. Mismatch: resync, retry once, then
+     DISCARD THE TAG.
   9. Assert the 21 bytes at mirror_position() are the all-zero placeholder.
- 10. READ_CNT -> enrol_counter.
- 11. Write CFG0 (mirror) then CFG1 (NFC_CNT_EN=1). MTA IS ENABLED HERE.
+ 10. Write CFG0 (mirror) then CFG1 (NFC_CNT_EN=1). MTA IS ENABLED HERE.
+ 11. READ_CNT -> enrol_counter. MUST follow step 10: a virgin or factory-reset
+     tag has NFC_CNT_EN=0 and NAKs READ_CNT, which the PN532 reports as a bare
+     InCommunicateThru status error. This pair used to be inverted.
  12. If TAG_LOCK_ENABLED and --i-understand-this-is-permanent: lock.
  13. POWER-CYCLE THE FIELD. Read once as a phone would. Assert the URL now
-     carries a real UID and a counter STRICTLY GREATER than step 10.
+     carries a real UID and a counter STRICTLY GREATER than step 11.
      If not, the mirror is not working. DISCARD THE TAG. Do not ship it.
+     That ordering constraint is why 11 cannot precede 10.
  14. Seal the record to the backend's public key.
  15. outbox.enqueue(...)  <- DURABLE, BEFORE ANY NETWORK I/O.
  16. Print "OK — queued". The drainer handles the rest.
@@ -88,9 +94,17 @@ def open_pn532():
     import busio
     from adafruit_pn532.i2c import PN532_I2C
 
+    # PN532_DEBUG=1 makes the driver print every frame it writes and reads.
+    # That raw frame dump is the one measurement that distinguishes a misparsed
+    # response (preamble/offset wandering, a stale frame being consumed) from a
+    # genuine RF fault, and the two have been mistaken for each other here
+    # before. Reach for it before reaching for a scope.
+    debug = os.getenv("PN532_DEBUG", "").lower() in ("1", "true", "yes", "on")
     i2c = busio.I2C(board.SCL, board.SDA)
-    pn532 = PN532_I2C(i2c, debug=False)
+    pn532 = PN532_I2C(i2c, debug=debug)
     pn532.SAM_configuration()
+    if debug:
+        log.info("PN532 firmware %s", pn532.firmware_version())
     return pn532
 
 
@@ -163,7 +177,15 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
         except ntag.NtagError as exc:
             if attempt + 1 >= READBACK_RETRIES:
                 raise TagDiscarded(f"NDEF read-back mismatch: {exc}") from exc
-            log.warning("read-back mismatch, rewriting: %s", exc)
+            log.warning("read-back mismatch, rewriting: %s", exc, exc_info=True)
+            # Re-align the frame stream and re-select the tag before rewriting.
+            # A mismatch is frequently a misparsed frame rather than a bad write
+            # (ntag.BusDesync), and rewriting into a desynced stream or at a
+            # deselected tag just reproduces it.
+            if not ntag.resync(pn532):
+                raise TagDiscarded(
+                    f"NDEF read-back mismatch and the bus could not be "
+                    f"resynced: {exc}") from exc
             ntag.write_ndef(pn532, tlv)
 
     # 9. The placeholder must be exactly where the mirror config says it is. If
@@ -175,15 +197,28 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
             f"placeholder is not at the computed mirror position: got {found!r}. "
             f"The offset arithmetic and the actual write have diverged.")
 
-    # 10. Capture the counter as it stands after our own handful of reads.
-    enrol_counter = ntag.read_counter(pn532, cfg["cnt_byte_order"])
-    print(f"  counter at enrolment: {enrol_counter}")
-
-    # 11. Enable the mirror and the counter. MTA is live from here.
+    # 10. Enable the mirror and the counter. MTA is live from here.
     cfg0, cfg1 = tag_config.testing_config(mirror_byte, mirror_page)
     if cfg["tag_lock_enabled"]:
         cfg0, cfg1 = tag_config.production_config(mirror_byte, mirror_page)
     tag_config.write_config(pn532, cfg0, cfg1)
+
+    # 11. Capture the counter, AFTER NFC_CNT_EN has been set.
+    #
+    #     THE ORDER OF 10 AND 11 IS NOT COSMETIC and it used to be the other way
+    #     round. A virgin or factory-reset NTAG216 ships with NFC_CNT_EN = 0, and
+    #     the datasheet is explicit that READ_CNT is NAKed while it is 0 — the
+    #     PN532 surfaces that NAK as a bare InCommunicateThru status error. So
+    #     reading the counter before switching it on could not work on any tag
+    #     that had not already been through --calibrate, and resetting a tag to
+    #     factory defaults re-armed the failure. calibrate() below documents
+    #     this exact trap in its own docstring; enrolment walked into it anyway.
+    #
+    #     Capturing it here still gives _confirm_mirror_live a sound baseline:
+    #     the counter increments on the first read command after each power-up,
+    #     so the post-power-cycle read in step 13 must exceed this value.
+    enrol_counter = ntag.read_counter(pn532, cfg["cnt_byte_order"])
+    print(f"  counter at enrolment: {enrol_counter}")
 
     # 12. Optional, irreversible.
     if cfg["tag_lock_enabled"]:
@@ -248,7 +283,7 @@ def _confirm_mirror_live(pn532, host: str, pages: int, enrol_counter: int) -> in
     """Read the tag exactly as a phone would and assert the mirror really fired.
 
     Two things must now be true: the placeholder has been replaced by a real UID,
-    and the counter is STRICTLY GREATER than what we recorded at step 10 (our own
+    and the counter is STRICTLY GREATER than what we recorded at step 11 (our own
     confirmation read advanced it).
     """
     data = ntag.read_ndef(pn532, pages)
