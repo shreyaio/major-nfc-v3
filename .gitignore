@@ -26,7 +26,7 @@ venv*/
 .pytest_cache/
 
 # Tests (evidence output only — keep the pytest suite itself tracked)
-backend/tests/evidence/
+#backend/tests/evidence/
 .pytest_cache/
 
 # Generated QR fallback images (runtime output, not source)
