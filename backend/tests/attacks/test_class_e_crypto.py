@@ -19,11 +19,13 @@ import statistics
 from pathlib import Path
 
 import pytest
-
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.serialization import (
-    Encoding, NoEncryption, PrivateFormat, PublicFormat,
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
 )
 
 import crypto_envelope

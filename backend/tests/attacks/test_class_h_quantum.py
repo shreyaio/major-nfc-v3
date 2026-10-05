@@ -22,7 +22,6 @@ import pytest
 
 import crypto_envelope
 import crypto_signing
-import crypto_rowsig
 
 pytestmark = pytest.mark.integration
 
@@ -90,8 +89,7 @@ def test_h4_harvest_now_decrypt_later_is_partial(evidence):
     fields are actually sealed (four ciphertexts + wrapped DEK), not sent in
     clear."""
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import (
-        Encoding, PublicFormat)
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
     pub = X25519PrivateKey.generate().public_key().public_bytes(
         Encoding.Raw, PublicFormat.Raw)
     sealed = crypto_envelope.seal_record(
