@@ -732,36 +732,29 @@ What `TAG_LOCK_ENABLED=true` adds later, in this order:
 ### 6.8 Raw NTAG commands over the PN532
 
 `adafruit_pn532` exposes `ntag2xx_read_block` / `ntag2xx_write_block` but not
-`GET_VERSION`, `READ_SIG`, `READ_CNT` or `PWD_AUTH`. Those go through
-`InDataExchange` (0x40) with target 1:
+`GET_VERSION`, `READ_SIG`, `READ_CNT`, `FAST_READ` or `PWD_AUTH`. Those go through
+**`InCommunicateThru` (0x42)**, not `InDataExchange` (0x40):
 
 ```python
 # pi/ntag.py
-CMD_IN_DATA_EXCHANGE = 0x40
+CMD_IN_COMMUNICATE_THRU = 0x42
 
 def transceive(pn532, payload: list[int], response_length: int) -> bytes:
-    """Send a raw ISO14443A-3 command to the selected tag. `payload` is the NTAG
-    command bytes; target 1 is prepended. Returns the response minus the status byte."""
-    resp = pn532.call_function(CMD_IN_DATA_EXCHANGE,
-                               params=[0x01] + payload,
+    resp = pn532.call_function(CMD_IN_COMMUNICATE_THRU,
+                               params=list(payload),
                                response_length=response_length + 1)
-    if resp is None or len(resp) < 1 or resp[0] != 0x00:
-        raise NtagError(f"InDataExchange status {resp[0] if resp else 'none'}")
-    return bytes(resp[1:])
-
-def get_version(pn532) -> bytes:
-    return transceive(pn532, [0x60], 8)
-
-def read_sig(pn532) -> bytes:
-    return transceive(pn532, [0x3C, 0x00], 32)
-
-def read_counter(pn532, byte_order: str) -> int:
-    raw = transceive(pn532, [0x39, 0x02], 3)
-    return int.from_bytes(raw, "big" if byte_order == "msb" else "little")
-
-def fast_read(pn532, start: int, end: int) -> bytes:
-    return transceive(pn532, [0x3A, start, end], (end - start + 1) * 4)
+    ...
 ```
+
+**Why 0x42 and not 0x40.** `InDataExchange` makes the PN532 firmware interpret the
+payload's first byte as a MIFARE command. NTAG's `GET_VERSION` is `60h`, which is
+also MIFARE Classic's `AUTHENTICATE KEY A` — so the reader tries to run an
+authentication handshake, answers with a frame the driver rejects outright
+(`"Received unexpected command response!"`), and the tag never sees the command at
+all. The failure looks like a broken tag or a wiring fault; it is neither. `42h`
+passes the bytes through untouched, and takes **no target number** — that byte
+belongs to `40h` only, and sending it here would be transmitted to the tag as data.
+Hardware-confirmed on NTAG216: `40h` fails, `42h` returns `0004040201001303`.
 
 **`GET_VERSION` assertion** (attack A12, F9a): a genuine NTAG216 returns vendor `04h`
 and storage size `13h`. Assert both before proceeding. Anything else → reject.
@@ -773,9 +766,78 @@ per page and a ~50 ms settle delay after each successful write. Writing ~24 page
 back-to-back without pacing causes real `"Response frame preamble does not contain
 0x00FF!"` I²C errors on this hardware. This was found empirically; do not "clean it up".
 
+#### 6.8.1 The write is issued directly, and failures are never swallowed
+
+**The page write does *not* go through `ntag2xx_write_block`.** `pi/ntag.py`
+issues the identical frame itself — `InDataExchange`, target `01h`, `A2h`, page,
+four data bytes — because the library's wrapper ends with:
+
+```python
+response = self.call_function(_COMMAND_INDATAEXCHANGE, ...)
+return response[0] == 0x00
+```
+
+Two defects follow from that, and together they are why a multi-page NDEF write
+failed **intermittently** for a night while every short command succeeded every
+time:
+
+1. **A rejected write is reported by returning `False`, not by raising.**
+   `write_page` discarded that return value, so a write the PN532 had explicitly
+   rejected — status `01h` timeout, `02h` CRC error, `0Bh` RF protocol error —
+   was recorded as a success, the retries never fired, and the page simply stayed
+   unwritten. The read-back byte-compare two steps later was the only thing that
+   noticed, which is where a lone one-byte "mismatch" with no preceding error
+   comes from.
+
+2. **`call_function` returns `None` when its `_wait_ready` expires**, which makes
+   the wrapper raise `TypeError` on `response[0]`. `write_page` caught bare
+   `Exception` and retried — but the response frame the PN532 posts a moment
+   later was never read off the bus, so the frame stream ran **one frame behind**.
+   `process_response` only validates `response[1] == command + 1`, and every page
+   write is the same command, so a one-frame-behind stream passes that check
+   silently for the rest of the burst. The trailing `FAST_READ` then lands on a
+   misaligned frame.
+
+**That is what a read-back whose byte 0 is `3Ah` means.** `3Ah` is the
+`FAST_READ` opcode. No RF fault, no amount of slowing the I²C bus down and no
+improvement in tag placement can put a command opcode at data offset 0 — it is
+frame misalignment, and reading it as a marginal physical link is a dead end.
+
+So: `_write_page_once` raises on `None` (as `BusDesync`) and on any non-zero
+status, with the PN532's status byte **decoded in the message**; `write_page`
+logs every failed attempt with its traceback and calls `ntag.resync()` before
+retrying. `resync()` drains orphaned frames by probing `GetFirmwareVersion` until
+it parses — a desynced stream makes it raise while consuming one stale frame —
+then re-selects the tag, because a failed exchange may have left it deselected
+and `InCommunicateThru` has no target byte to re-establish one.
+
+#### 6.8.2 `FAST_READ` is chunked
+
+`fast_read` splits into `FAST_READ_CHUNK_PAGES` (16 pages / 64 bytes) requests
+and rejoins them. A whole NDEF record *fits* in one PN532 frame, and it used to
+be read that way, but that left **no slack** in the driver's buffer:
+`_read_frame(length)` calls `_read_data(length + 7)`, which for a 96-byte record
+is exactly the 106 bytes the frame occupies on the wire. `_read_frame` then skips
+leading `00h` bytes before it looks for `FFh`, and the PN532 over I²C does not
+emit a fixed number of them. One extra preamble byte still parses; two, and the
+frame checksum is computed over a slice Python has silently truncated. Chunking
+absorbs that jitter and keeps each I²C transaction short, which matters on a Pi
+whose hardware I²C handles the PN532's clock stretching poorly.
+
+`FAST_READ` also accepts pages `00h`–`03h`, which are readable but are not user
+memory. `apply_lock_sequence` reads page `02h` to preserve the two UID bytes that
+share it with the static lock bytes; while the read guard started at `04h`, the
+one irreversible path in the build raised before it began.
+
 **Anti-tearing (A13):** NTAG21x protects lock bits and the counter against tearing in
 hardware, but the NDEF area is not protected. The mandatory read-back byte-compare
 after writing is what catches a torn write. Never skip it.
+
+**Diagnosing the next one.** Set `PN532_DEBUG=1` and the driver prints every
+frame it writes and reads. That raw dump is the one measurement that separates a
+misparsed response — preamble jitter, a stale frame being consumed — from a
+genuine RF fault, and the two have been mistaken for each other here before.
+Reach for it before reaching for a scope, a slower bus or an SPI rewire.
 
 ---
 
@@ -1951,17 +2013,18 @@ Three deployables, one repo. `pi/` ships to the Pi; nothing in it imports from
  5. token = secrets.token_bytes(16)                                  → 32 hex chars
  6. url = build_verify_url(PUBLIC_HOST, token.hex())
     tlv = build_ndef_tlv(url)        ← raises if > 252 bytes
- 7. Write TLV from page 04h, one page at a time,
-    3 retries per page + ~50 ms settle delay after each success      ← carried from v1
- 8. FAST_READ the whole NDEF area and BYTE-COMPARE against tlv       → mismatch: retry
-    once, then DISCARD THE TAG. (F10, A13)
+ 7. Write TLV from page 04h, one page at a time, 3 retries per page,
+    the PN532 status byte CHECKED on every page, ntag.resync() before
+    each retry, and a ~50 ms settle delay after each success          ← carried from v1
+ 8. FAST_READ the NDEF area in chunks and BYTE-COMPARE against tlv   → mismatch:
+    resync, retry once, then DISCARD THE TAG. (F10, A13)
  9. Assert the 21 bytes at mirror_position() are the all-zero placeholder.
-10. READ_CNT → enrol_counter (a handful of reads from steps 3, 4, 8)
-11. Write CFG0 (mirror config) then CFG1 (NFC_CNT_EN=1).             ← MTA enabled here
+10. Write CFG0 (mirror config) then CFG1 (NFC_CNT_EN=1).             ← MTA enabled here
+11. READ_CNT → enrol_counter.                                        ← MUST follow 10
 12. If TAG_LOCK_ENABLED and --i-understand-this-is-permanent:
         apply_lock_sequence()                                         (§6.7)
 13. Power-cycle the field. Read the tag once as a phone would.
-    Assert the URL now carries a real UID and a counter STRICTLY GREATER than step 10.
+    Assert the URL now carries a real UID and a counter STRICTLY GREATER than step 11.
     → If not, the mirror is not working. DISCARD THE TAG. Do not ship it.
 14. sealed = seal_record({product_id, batch_id, mfg_date, tag_uid}, FIELD_RECIPIENT_PUB)
 15. outbox.enqueue(payload, idempotency_key=uuid4())   ← DURABLE, BEFORE any network I/O
@@ -1974,6 +2037,17 @@ cleanly but whose mirror never turns on produces `MIRROR_DISABLED` on every cons
 scan — a genuine pack that verifies badly, forever.
 
 **Step 15 before any network call** is the F3 fix. See §12.3.
+
+**Steps 10 and 11 are in that order for a reason, and were inverted until
+2026-10.** A virgin or factory-reset NTAG216 ships with `NFC_CNT_EN = 0`, and the
+datasheet is explicit that `READ_CNT` is **NAKed** while it is `0`; the PN532
+surfaces that NAK as a bare `InCommunicateThru` status error. Capturing
+`enrol_counter` before switching the counter on therefore could not work on any
+tag that had not already been through `--calibrate`, and resetting a tag to
+factory defaults re-armed the failure. `calibrate()` documents this exact trap in
+its own docstring (§20.7) — enrolment walked into it anyway. Reading the counter
+*after* the config write still gives step 13 a sound baseline, because the
+counter increments on the first read command following each power-up.
 
 ### 12.2 The QR fallback is removed (F4)
 

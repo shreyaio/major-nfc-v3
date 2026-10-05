@@ -21,8 +21,6 @@ What this file can and cannot reach:
 """
 from __future__ import annotations
 
-import secrets
-
 import pytest
 
 pytestmark = pytest.mark.integration

@@ -83,6 +83,46 @@ when the NDEF write failed. A QR is static copyable data — a pack shipped with
 one has *none* of the physical binding this system exists to provide, and the
 consumer cannot tell the difference. If the write fails, the tag goes in the bin.
 
+### When the WRITE itself keeps failing
+
+Tags are cheap and the rule above is absolute — but if you are binning tag after
+tag, the tags are not the problem and you should stop and read the error rather
+than keep feeding the reader.
+
+| Message | What it means | What to do |
+|---|---|---|
+| `WRITE of page … status 0x01` | Tag did not answer in time | Hold the tag flat and still on the coil. A 24-page write is 3–5 s of continuous RF. |
+| `WRITE of page … status 0x02` / `0x0B` | CRC or RF protocol error on a single page | The retries and `resync()` handle isolated ones. A run of them on every tag is the reader, not the tags. |
+| `… response frame is probably still pending on the bus` | Driver timed out; the I²C frame stream desynced | Recovered automatically. Frequent occurrences mean the bus is marginal — see below. |
+| `… is a COMMAND OPCODE, which means the frame stream is misaligned` | **Not an RF fault** | A framing bug, not a bad link. Do not chase power or bus speed. Capture frames with `PN532_DEBUG=1` and read §6.8.1. |
+
+**Diagnose in this order.** These three symptoms — a CRC error, a timeout, and a
+read-back that differs by one byte — look like a flaky RF link and are *usually
+not*. Before changing anything physical:
+
+1. **`PN532_DEBUG=1 python enroller.py --batch …`** and capture the raw frames.
+   This is the measurement that settles it. If the preamble length wanders or a
+   response arrives for the previous command, it is framing, and no amount of
+   rewiring will help.
+2. **Check the error names a specific page and a decoded status.** If it does
+   not, you are on an old build that discarded the PN532's status byte and
+   reported failed writes as successes (fixed 2026-10, §6.8.1). Update first;
+   everything you observe before that is unreliable.
+3. **Then, and only then, the physical layer.** Lower the bus to 50 kHz
+   (`dtparam=i2c_arm_baudrate=50000` in `/boot/firmware/config.txt`, then
+   reboot), raise `NDEF_PAGE_WRITE_DELAY` to `0.1`, add a decoupling capacitor
+   across the PN532's 3V3 and GND, and keep jumper wires short and firmly
+   seated. The Pi's hardware I²C handles the PN532's clock stretching poorly, so
+   these are real mitigations — they are just not the first thing to try.
+4. **SPI is the last resort.** Independent reports put SPI ahead of I²C for
+   sustained writes to this chip, but it needs both rewiring and a code change.
+   Exhaust 1–3 first.
+
+A short command succeeding reliably (`GET_VERSION`, `READ_SIG`) while the
+multi-page write fails is **not** evidence of a marginal link. It is what a
+framing or error-handling bug looks like: one frame per short command, nothing
+queued behind it to desync.
+
 ---
 
 ## 4. Closing a batch
