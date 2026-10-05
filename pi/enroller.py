@@ -11,37 +11,42 @@ THE ENROLMENT SEQUENCE, and why each step is where it is:
   1. Operator confirms batch + product. mfg_date comes from the BATCH, not from
      typing it per pack (F8).
   2. Wait for a tag.
-  3. GET_VERSION -> assert vendor 04h, storage 0Fh, else REJECT (A12).
+  3. GET_VERSION -> assert vendor 04h, storage 13h, else REJECT (A12).
   4. READ_SIG -> originality check.
        FAILED      -> REJECT, quarantine, audit, count the rejection (A2, F9a)
        UNAVAILABLE -> proceed, record originality_status='unverified'
-  5. token = 16 random bytes -> 32 hex chars.
-  6. Build the URL and the NDEF TLV (raises if over tag_layout.MAX_NDEF_BYTES).
-  7. Write the TLV from page 04h, one page at a time, 3 retries + ~50 ms settle,
+  5. If a pre-enabled UID/counter mirror is present, clear ONLY the MIRROR mode
+     bits so the physical NDEF bytes can be written and read back. Some stock
+     NTAG216 arrives with the mirror already on; see
+     _disable_preexisting_mirror.
+  6. token = 16 random bytes -> 32 hex chars.
+  7. Build the URL and the NDEF TLV (raises if over tag_layout.MAX_NDEF_BYTES).
+  8. Write the TLV from page 04h, one page at a time, 3 retries + ~50 ms settle,
      with the PN532's status byte CHECKED on every page and the I2C frame stream
      resynced before each retry (ntag.resync).
-  8. FAST_READ in chunks and BYTE-COMPARE. Mismatch: resync, retry once, then
+  9. FAST_READ in chunks and BYTE-COMPARE. Mismatch: resync, retry once, then
      DISCARD THE TAG.
-  9. Assert the 21 bytes at mirror_position() are the all-zero placeholder.
- 10. Write CFG0 (mirror) then CFG1 (NFC_CNT_EN=1). MTA IS ENABLED HERE.
- 11. READ_CNT -> enrol_counter. MUST follow step 10: a virgin or factory-reset
+ 10. Assert the 21 bytes at mirror_position() are the all-zero placeholder.
+ 11. Write CFG0 (mirror) then CFG1 (NFC_CNT_EN=1). MTA IS ENABLED HERE. This
+     also re-establishes the mirror that step 5 may have switched off.
+ 12. READ_CNT -> enrol_counter. MUST follow step 11: a virgin or factory-reset
      tag has NFC_CNT_EN=0 and NAKs READ_CNT, which the PN532 reports as a bare
      InCommunicateThru status error. This pair used to be inverted.
- 12. If TAG_LOCK_ENABLED and --i-understand-this-is-permanent: lock.
- 13. POWER-CYCLE THE FIELD. Read once as a phone would. Assert the URL now
-     carries a real UID and a counter STRICTLY GREATER than step 11.
+ 13. If TAG_LOCK_ENABLED and --i-understand-this-is-permanent: lock.
+ 14. POWER-CYCLE THE FIELD. Read once as a phone would. Assert the URL now
+     carries a real UID and a counter STRICTLY GREATER than step 12.
      If not, the mirror is not working. DISCARD THE TAG. Do not ship it.
-     That ordering constraint is why 11 cannot precede 10.
- 14. Seal the record to the backend's public key.
- 15. outbox.enqueue(...)  <- DURABLE, BEFORE ANY NETWORK I/O.
- 16. Print "OK — queued". The drainer handles the rest.
+     That ordering constraint is why 12 cannot precede 11.
+ 15. Seal the record to the backend's public key.
+ 16. outbox.enqueue(...)  <- DURABLE, BEFORE ANY NETWORK I/O.
+ 17. Print "OK — queued". The drainer handles the rest.
 
-STEP 13 IS THE MOST IMPORTANT OPERATIONAL STEP IN THE WHOLE BUILD. It is the only
+STEP 14 IS THE MOST IMPORTANT OPERATIONAL STEP IN THE WHOLE BUILD. It is the only
 way to know the mirror is actually working BEFORE the pack ships. A tag that
 enrols cleanly but whose mirror never turns on produces MIRROR_DISABLED on every
 consumer scan — a genuine pack that verifies badly, forever.
 
-STEP 15 BEFORE ANY NETWORK CALL is the F3 fix (§5.4). Nothing is reported as
+STEP 16 BEFORE ANY NETWORK CALL is the F3 fix (§5.4). Nothing is reported as
 successful to the operator until the record is durably on disk.
 
 THE QR FALLBACK IS GONE (F4, §12.2). v1 printed a QR of the same URL when the
@@ -125,6 +130,61 @@ def uid_clean(uid: bytes) -> str:
 
 # ------------------------------------------------------------------- enrol ----
 
+def _disable_preexisting_mirror(pn532) -> bool:
+    """Clear an already-enabled UID/counter mirror before the NDEF read-back.
+    Returns True if a mirror was found and switched off.
+
+    SOME STOCK NTAG216 ARRIVES WITH THE ASCII MIRROR ALREADY ENABLED. Observed
+    on this project's supply: CFG0 (E3h) byte 0 = C4h, i.e. MIRROR_CONF = 11b
+    (UID + counter) with the mirror pointed at page 0Fh.
+
+    While that is live, a read of the mirrored pages returns the chip's
+    substituted UID/counter ASCII instead of the physical bytes underneath, so
+    the mandatory byte-compare in step 9 reports a mismatch on a write that
+    actually succeeded. That looks exactly like a torn write and is not one.
+
+    Only the MIRROR mode bits (E3h byte 0, bits 7:6) are cleared. MIRROR_PAGE,
+    MIRROR_BYTE, STRG_MOD_EN, AUTH0 and every other bit are written back as
+    read, because this is a configuration page and a careless whole-page write
+    here is how a tag loses its mirror position or its password protection.
+    Step 11 writes the final mirror and counter configuration anyway, so this is
+    a temporary measure within one enrolment and nothing needs to restore it.
+
+    Note the read goes through `pn532.ntag2xx_read_block` rather than
+    `ntag.fast_read`: E3h is above USER_PAGE_LAST (E1h), so the user-memory read
+    guard correctly refuses it. The WRITE goes through `ntag.write_page`, which
+    checks the PN532's status byte and resyncs on failure — never
+    `pn532.ntag2xx_write_block`, which reports failure by returning False.
+    """
+    raw = pn532.ntag2xx_read_block(tag_config.CFG0_PAGE)
+    if raw is None:
+        raise ntag.NtagError(
+            f"CFG0/{tag_config.CFG0_PAGE:#04x} read returned nothing — the tag "
+            f"did not answer, or the frame stream is misaligned")
+    raw = bytes(raw)
+    if len(raw) != 4:
+        raise ntag.NtagError(
+            f"CFG0/{tag_config.CFG0_PAGE:#04x} read returned {len(raw)} bytes, "
+            f"expected 4")
+
+    if raw[0] & 0xC0 == 0:
+        return False
+
+    disabled = bytes([raw[0] & 0x3F, raw[1], raw[2], raw[3]])
+    print(f"  pre-existing mirror detected (E3={raw.hex().upper()}); "
+          f"disabling it for the NDEF write")
+
+    ntag.write_page(pn532, tag_config.CFG0_PAGE, disabled)
+    verify = pn532.ntag2xx_read_block(tag_config.CFG0_PAGE)
+    verify = bytes(verify) if verify is not None else b""
+    if verify[:4] != disabled:
+        raise ntag.NtagError(
+            f"failed to disable the mirror: wrote {disabled.hex().upper()}, "
+            f"read {verify.hex().upper() or '<nothing>'}. The NDEF read-back "
+            f"cannot be trusted while the mirror is live, so stop here.")
+    return True
+
+
 def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
     """One tag, start to finish. Returns the queued payload."""
     host = cfg["public_host"]
@@ -160,14 +220,21 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
     else:
         print(f"  originality: {originality_status}")
 
-    # 5-6. Binding token, URL, TLV.
+    # 5. Some stock tags arrive with the UID/counter ASCII mirror already
+    #    enabled, which makes reads return mirrored bytes instead of the
+    #    physical NDEF and turns a good write into a false mismatch. Clear just
+    #    the mirror mode bits before touching NDEF; step 11 sets the real
+    #    configuration.
+    _disable_preexisting_mirror(pn532)
+
+    # 6-7. Binding token, URL, TLV.
     token_hex = secrets.token_bytes(tag_layout.BINDING_TOKEN_BYTES).hex().upper()
     url = tag_layout.build_verify_url(host, token_hex)
     tlv = tag_layout.build_ndef_tlv(url)
     mirror_page, mirror_byte = tag_layout.mirror_position(host)
     print(f"  NDEF {len(tlv)}B, mirror at page {mirror_page:#04x} byte {mirror_byte}")
 
-    # 7-8. Write, then read back and BYTE-COMPARE. Never skip the compare: the
+    # 8-9. Write, then read back and BYTE-COMPARE. Never skip the compare: the
     #      NDEF area has no hardware anti-tearing protection (A13).
     pages = ntag.write_ndef(pn532, tlv)
     for attempt in range(READBACK_RETRIES):
@@ -188,8 +255,8 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
                     f"resynced: {exc}") from exc
             ntag.write_ndef(pn532, tlv)
 
-    # 9. The placeholder must be exactly where the mirror config says it is. If
-    #    it is not, enabling the mirror would corrupt the URL.
+    # 10. The placeholder must be exactly where the mirror config says it is.
+    #     If it is not, enabling the mirror would corrupt the URL.
     readback = ntag.read_ndef(pn532, pages)
     found = tag_layout.extract_placeholder(readback, host)
     if found != tag_layout.MIRROR_PLACEHOLDER.encode("ascii"):
@@ -197,15 +264,16 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
             f"placeholder is not at the computed mirror position: got {found!r}. "
             f"The offset arithmetic and the actual write have diverged.")
 
-    # 10. Enable the mirror and the counter. MTA is live from here.
+    # 11. Enable the mirror and the counter. MTA is live from here. This also
+    #     re-establishes any mirror that step 5 switched off.
     cfg0, cfg1 = tag_config.testing_config(mirror_byte, mirror_page)
     if cfg["tag_lock_enabled"]:
         cfg0, cfg1 = tag_config.production_config(mirror_byte, mirror_page)
     tag_config.write_config(pn532, cfg0, cfg1)
 
-    # 11. Capture the counter, AFTER NFC_CNT_EN has been set.
+    # 12. Capture the counter, AFTER NFC_CNT_EN has been set.
     #
-    #     THE ORDER OF 10 AND 11 IS NOT COSMETIC and it used to be the other way
+    #     THE ORDER OF 11 AND 12 IS NOT COSMETIC and it used to be the other way
     #     round. A virgin or factory-reset NTAG216 ships with NFC_CNT_EN = 0, and
     #     the datasheet is explicit that READ_CNT is NAKed while it is 0 — the
     #     PN532 surfaces that NAK as a bare InCommunicateThru status error. So
@@ -216,11 +284,11 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
     #
     #     Capturing it here still gives _confirm_mirror_live a sound baseline:
     #     the counter increments on the first read command after each power-up,
-    #     so the post-power-cycle read in step 13 must exceed this value.
+    #     so the post-power-cycle read in step 14 must exceed this value.
     enrol_counter = ntag.read_counter(pn532, cfg["cnt_byte_order"])
     print(f"  counter at enrolment: {enrol_counter}")
 
-    # 12. Optional, irreversible.
+    # 13. Optional, irreversible.
     if cfg["tag_lock_enabled"]:
         tag_config.apply_lock_sequence(
             pn532, uid, tag_lock_enabled=True,
@@ -228,13 +296,13 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
             pwd_master_hex=cfg["tag_pwd_master"],
             mirror_byte=mirror_byte, mirror_page=mirror_page, ndef_pages=pages)
 
-    # 13. Power-cycle and confirm the mirror is LIVE. The single most important
+    # 14. Power-cycle and confirm the mirror is LIVE. The single most important
     #     operational check in the build.
     _power_cycle(pn532)
     live_counter = _confirm_mirror_live(pn532, host, pages, enrol_counter)
     print(f"  mirror confirmed live, counter now {live_counter}")
 
-    # 14. Seal to the backend's PUBLIC key. The Pi cannot read the register back.
+    # 15. Seal to the backend's PUBLIC key. The Pi cannot read the register back.
     sealed = crypto_envelope.seal_record(
         {"product_id": product_id,
          "batch_id": session.batch_ref,
@@ -254,7 +322,7 @@ def enrol_one(pn532, *, cfg: dict, session, box, product_id: str) -> dict:
         "sealed": sealed,
     }
 
-    # 15. DURABLE, BEFORE ANY NETWORK I/O. This is the F3 fix.
+    # 16. DURABLE, BEFORE ANY NETWORK I/O. This is the F3 fix.
     box.enqueue(payload, idempotency_key=str(uuid.uuid4()))
     return payload
 
@@ -283,7 +351,7 @@ def _confirm_mirror_live(pn532, host: str, pages: int, enrol_counter: int) -> in
     """Read the tag exactly as a phone would and assert the mirror really fired.
 
     Two things must now be true: the placeholder has been replaced by a real UID,
-    and the counter is STRICTLY GREATER than what we recorded at step 11 (our own
+    and the counter is STRICTLY GREATER than what we recorded at step 12 (our own
     confirmation read advanced it).
     """
     data = ntag.read_ndef(pn532, pages)
