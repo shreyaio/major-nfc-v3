@@ -176,6 +176,17 @@ combinations** of its inputs and asserts a single property:
 That is the strongest guarantee in the codebase, and it is cheap precisely because
 the decision logic has no database and no Flask inside it.
 
+Its statistical sibling is
+[`tests/unit/test_montecarlo_clone_detection.py`](backend/tests/unit/test_montecarlo_clone_detection.py):
+rather than enumerating the whole state space, it drives the same `decide()`
+function with randomly interleaved genuine/clone scans to validate the
+paper's clone-detection-probability claims (reused-URL certain detection,
+`Pdetect = g/(g+1)` for a single-use clone, `1 - 1/n!` for distinct forged
+counters) — a Monte-Carlo reproduction of paper Table III, also no database
+and no network. `backend/tests/simulation/reproduce_table_iii.py` runs the
+same thing standalone at paper scale (10^5 trials/cell) and writes a
+paper-ready CSV/Markdown table.
+
 The 96-attack suite lives in `backend/tests/attacks/`, one file per class and one
 function per §16 ID. `docs/ATTACK_MATRIX.md` maps every attack to the mechanism
 that already defends against it — it is a traceability matrix, not a work list, and
@@ -198,6 +209,15 @@ parameterised query) and the birthday-bound validation — figures rather than p
 existing tests and which are **known-open**. Do not present a v2 column as measured
 results until the tests have actually run: an unexpected failure you found and
 reported is worth more to a reviewer than a clean sweep they suspect was curated.
+
+Those are all pass/fail. For the **quantitative** load/scaling/replay-storm
+measurements a paper actually needs — p50/p95/p99 latency under an RPS sweep,
+error-response breakdown, verification latency vs. database size, and
+replay-storm detection rate at scale — see
+[`benchmarks/README.md`](benchmarks/README.md). It drives a live
+test/staging deployment, never production, and reuses this repository's own
+signing/enrolment/verification request construction rather than inventing a
+second implementation of it.
 
 ---
 

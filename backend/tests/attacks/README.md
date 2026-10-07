@@ -3,6 +3,21 @@
 **Written (Phase 8).** One file per class, one function per §16 ID, each emitting
 a JSONL evidence record. See ARCHITECTURE.md §16 and §17.3.
 
+**Related, but deliberately kept out of this directory:**
+
+- `../unit/test_montecarlo_clone_detection.py` + `../simulation/` —
+  statistical (not exhaustive, not live-HTTP) validation of the paper's
+  clone-detection-probability claims (Propositions 1-3 / Table III), driving
+  `services/verification.decide()` directly. No TEST_BASE_URL, no evidence
+  JSONL, no A-H attack ID — it is a probability claim about the decision
+  function, not a pass/fail attack outcome, so it lives with
+  `test_verdict_machine.py` instead.
+- `../../../benchmarks/` — the four quantitative load/scaling/replay-storm
+  experiments (RPS-vs-latency, error-rate breakdown, DB-size-vs-latency,
+  replay-storm-at-scale). These need sustained live traffic over minutes
+  against a test/staging deployment, which is not what a pytest test is for;
+  see `benchmarks/README.md`.
+
 ## What the suite does NOT do
 
 The brief was explicit: **do not add code addressing each attack one by one** in

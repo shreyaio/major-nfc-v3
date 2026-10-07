@@ -32,6 +32,17 @@ venv*/
 # Generated QR fallback images (runtime output, not source)
 pi/qr_codes/
 
+# Quantitative benchmark run output (generated — raw CSVs, summaries, figures,
+# run manifest). The scripts that produce them are tracked; their output is
+# per-run evidence against a particular test/staging deployment, not source.
+benchmarks/raw/*
+benchmarks/summaries/*
+benchmarks/figures/*
+!benchmarks/raw/.gitkeep
+!benchmarks/summaries/.gitkeep
+!benchmarks/figures/.gitkeep
+benchmarks/run_manifest.json
+
 # IDEs
 .vscode/
 .idea/
