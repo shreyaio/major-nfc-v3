@@ -1,0 +1,10 @@
+{
+  "as_of_date": "2026-10-20",
+  "merkle_root": "5a383b36844c72d5ba322eb70d398ff1c020a6e938c75dbeaa42c19d6c60fcd7",
+  "record_count": 8,
+  "audit_head": "c437ed1280f64c06b9d2df740f73f9adc27ccdfa55710c3dde1afce508583531",
+  "signature": "d313b8b71441c843ec9275ddd6fc96b957648b2cb3b5e8a865534d9002b2a3962702655c54c893f9af77e5ec25af18e4fb3174c095265d4d724aa6bdd7e1a109",
+  "pubkey": "b9c242d96445973baa0723cffac8710e16ca9d03e4f42cffc5c3b5557a7ec5e0",
+  "published_url": "https://github.com/shreyaio/major-nfc-v3/blob/main/log/2026-10-20.json",
+  "generated_at": "2026-10-20T08:52:21.097717+00:00"
+}
