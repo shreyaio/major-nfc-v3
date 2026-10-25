@@ -1,8 +1,17 @@
 # From medicine authenticity to a college asset register — the plan
 
-**Status:** proposal, nothing built yet.
-**Read with:** `ARCHITECTURE.md` (the v2 build spec) — this document only says what
-*changes*. Everything `ARCHITECTURE.md` says that is not contradicted here still holds.
+**Status:** the plain-language companion to `ARCHITECTURE.md` v3.
+**`ARCHITECTURE.md` is normative.** Where the two differ, the architecture wins. It
+refined this document in three places after the first review:
+
+- **One login, not two** (its D1). There is no public user account — the public just
+  taps. The role model in §7 below is unchanged; it is reached through a single door.
+- **Mutable fields leave the `assets` table** (its D3, §5.4). This document sketched
+  `spec`, `make`, `model` and cost as plaintext columns on `assets`; the architecture
+  moves them to `asset_profile`, because a column on a signed row cannot be edited
+  without making the signature ceremonial.
+- **Tag locking is ON in production** (its D6), the opposite of the v2 default, and
+  §1.2 there explains exactly what re-writing a tag does and does not do to MTA.
 
 ---
 
